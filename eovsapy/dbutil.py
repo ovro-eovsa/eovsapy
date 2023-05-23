@@ -55,7 +55,7 @@ from .util import Time
 import numpy as np
 import sys
 
-def get_cursor(host=None):
+def get_cursor(host=None, database=None):
     ''' Connect to the SQL database and return a cursor for access to it.
         If host is None, this first tries the MS SQL server at OVRO, then the 
         MySQL database at OVRO, and finally the Amazon Cloud database.
@@ -64,6 +64,8 @@ def get_cursor(host=None):
         to that host is returned.
         
         The returned values are None if the connection fails.
+        :param database: name of the SQL database. If None, take it from the .netrc definition. 
+            If not None, use the provided one
     '''
     import netrc
     if host is None:
@@ -71,17 +73,23 @@ def get_cursor(host=None):
             import pyodbc
             HOST = 'sqlserver.solar.pvt'
             username, acct, password = netrc.netrc().authenticators(HOST)
+            if not (database is None):
+                acct = database
             cnxn = pyodbc.connect("DRIVER={FreeTDS};SERVER="+HOST+",1433; \
                                  DATABASE="+acct+";UID="+username+";PWD="+password+";")
         except:
             try:
                 HOST = 'localhost'
                 username, acct, password = netrc.netrc().authenticators(HOST)
+                if not (database is None):
+                    acct = database
                 cnxn = mysql.connector.connect(user=username, passwd=password, host=HOST, database=acct)
             except:
                 try:
                     HOST = 'eovsa-db0.cgb0fabhwkos.us-west-2.rds.amazonaws.com'
                     username, acct, password = netrc.netrc().authenticators(HOST)
+                    if not (database is None):
+                        acct = database
                     cnxn = mysql.connector.connect(user=username, passwd=password, host=HOST, database=acct)
                 except:
                     print('Error: Could not attach to any database')
@@ -91,6 +99,8 @@ def get_cursor(host=None):
             import pyodbc
             HOST = host
             username, acct, password = netrc.netrc().authenticators(HOST)
+            if not (database is None):
+                acct = database
             cnxn = pyodbc.connect("DRIVER={FreeTDS};SERVER="+HOST+",1433; \
                                  DATABASE="+acct+";UID="+username+";PWD="+password+";")
         except:
@@ -99,6 +109,8 @@ def get_cursor(host=None):
         try:
             HOST = host
             username, acct, password = netrc.netrc().authenticators(HOST)
+            if not (database is None):
+                acct = database
             cnxn = mysql.connector.connect(user=username, passwd=password, host=HOST, database=acct)
         except:
             return None, None
@@ -106,6 +118,8 @@ def get_cursor(host=None):
         try:
             HOST = host
             username, acct, password = netrc.netrc().authenticators(HOST)
+            if not (database is None):
+                acct = database
             HOST = 'eovsa-db0.cgb0fabhwkos.us-west-2.rds.'+host
             cnxn = mysql.connector.connect(user=username, passwd=password, host=HOST, database=acct)
         except:
