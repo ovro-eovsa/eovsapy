@@ -232,7 +232,7 @@ def spec_data_to_fits(time, fghz, spec, tpk=None):
 
  
 
-def make_plot(out, spec, bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreqs=[25, 235], name=None, tpk=None):
+def make_plot(out, spec=None, ant_str='ant1-13', bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreqs=[25, 235], name=None, tpk=None):
     ''' Makes the final, nicely formatted plot and saves the spectrogram as a binary data
         file for subsequent sharing/plotting.  It used the out and spec outputs from inspect()
         and makes a background-subtracted two-panel plot with properly formatted axes.  The
