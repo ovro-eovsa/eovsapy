@@ -168,9 +168,10 @@ def combine_subtracted(out, bgidx=[100,110], vmin=0.1, vmax=10, ant_str='ant1-13
     spec = np.nanmean(np.abs(out['x'][idx[good],0])-bgd,0)
     return spec
 
-def spec_data_to_fits(time, fghz, spec, tpk=None):
+def spec_data_to_fits(time, fghz, spec, tpk=None, tbg_str=None, tbg2_str=None, ant_str=None):
     ''' Write EOVSA spectrum to FITS in current folder.  tpk is the flare peak time iso string.
     tpk = '2024-02-10 22:47:00'
+    tbg_str=['2024-02-10 22:43:00', '2024-02-10 22:43:10'], tbg2_str=['', ''], ant_str='ant1-13'
     example: fitsfile = spec_data_to_fits(time, fghz, spec, tpk='2024-02-10 22:47:00')
     '''
     from eovsapy.util import Time
@@ -178,6 +179,12 @@ def spec_data_to_fits(time, fghz, spec, tpk=None):
 
     if tpk is None:
         tpk = Time(time[0],format='jd').iso[:19]
+    if tbg_str is None:
+        tbg_str = ['', '']
+    if tbg2_str is None:
+        tbg2_str = ['', '']
+    if ant_str is None:
+        ant_str = ''
     # Convert peak time to flare_id
     flare_id = tpk.replace('-','').replace(' ','').replace(':','')
     fitsfile = f'eovsa.spec.flare_id_{flare_id}.fits'
@@ -224,6 +231,11 @@ def spec_data_to_fits(time, fghz, spec, tpk=None):
     prihdr.set('YCEN', 0.0, 'Antenna pointing in arcsec from Sun center')
     prihdr.set('POLARIZA', 'I', 'Polarizations present')
     prihdr.set('RESOLUTI', 0.0, 'Resolution value')
+    prihdr.set('BKG_TST', tbg_str[0], 'Start date/time of background subtraction')
+    prihdr.set('BKG_TED', tbg_str[1], 'End date/time of background subtraction')
+    prihdr.set('BKG2_TST', tbg2_str[0], 'Start date/time for secondary background subtraction')
+    prihdr.set('BKG2_TED', tbg2_str[1], 'End date/time for secondary background subtraction')
+    prihdr.set('ANTS', ant_str, 'Antenna used for the spectrum')
     # Write the file
     hdulist.writeto(fitsfile, overwrite=True)
 
@@ -306,7 +318,16 @@ def make_plot(out, spec=None, ant_str='ant1-13', bgidx=[100,110], bg2idx=None, v
     gaps = np.where(np.round((out['time'][1:] - out['time'][:-1])*86400) > 1)
     for gap in gaps:
         subspec[:,gap] = np.nan
-    
+    # Get the time string of the background subtraction
+    if bgidx is None:
+        tbg_str = ['', '']
+    else:
+        tbg_str = [times[bgidx[0]].isot, times[bgidx[1]].isot]
+        if bg2idx is None:
+            tbg2_str = ['', '']
+        else:
+            tbg2_str = [times[bg2idx[0]].isot, times[bg2idx[1]].isot]
+
     f = plt.figure(figsize=[14,8])
     ax0 = plt.subplot(211)
     ax1 = plt.subplot(212)
@@ -348,5 +369,5 @@ def make_plot(out, spec=None, ant_str='ant1-13', bgidx=[100,110], bg2idx=None, v
     if not any(name.lower().endswith(ext) for ext in acceptable_extensions):
         name += '.png'
     f.savefig(name)
-    fh = spec_data_to_fits(out['time'], out['fghz'], subspec, tpk=tpk)
+    fh = spec_data_to_fits(out['time'], out['fghz'], subspec, tpk=tpk, tbg_str=tbg_str, tbg2_str=tbg2_str, ant_str=ant_str)
     return f, ax0, ax1
