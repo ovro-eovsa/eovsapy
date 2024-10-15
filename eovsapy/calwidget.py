@@ -69,9 +69,9 @@ else:
     import tkinter as Tk
 import tkinter.ttk
 from tkinter.messagebox import askyesno, showerror
-from .util import Time, nearest_val_idx, lobe, lin_phase_fit, extract
-from . import cal_header as ch
-from . import dbutil as db
+from eovsapy.util import Time, nearest_val_idx, lobe, lin_phase_fit, extract
+from eovsapy import cal_header as ch
+from eovsapy import dbutil as db
 
 import tkinter.simpledialog
 
@@ -520,10 +520,10 @@ class App():
         # At this point, check how many bands we should have (this changed on 2019-Feb-22)
         if mjd > 58536:
             self.maxnbd = 52
-            from .chan_util_52 import freq2bdname
+            from eovsapy.chan_util_52 import freq2bdname
         else:
             self.maxnbd = 34
-            from .chan_util_bc import freq2bdname
+            from eovsapy.chan_util_bc import freq2bdname
         self.freq2bdname = freq2bdname
         # Erase flags image
         fig, ax = self.ab_fig_info
@@ -562,10 +562,10 @@ class App():
                 mjd = refcal_time.mjd
                 if mjd > 58536:
                     maxnbd = 52
-                    from .chan_util_52 import freq2bdname
+                    from eovsapy.chan_util_52 import freq2bdname
                 else:
                     maxnbd = 34
-                    from .chan_util_bc import freq2bdname
+                    from eovsapy.chan_util_bc import freq2bdname
                 dtr1 = st_time - refcal_time   # negative if in scan
                 dtr2 = en_time - refcal_time   # positive if in scan
                 if dtr1.jd < 0 and dtr2.jd > 0:
@@ -589,10 +589,10 @@ class App():
                     mjd = phacal_time.mjd
                     if mjd > 58536:
                         maxnbd = 52
-                        from .chan_util_52 import freq2bdname
+                        from eovsapy.chan_util_52 import freq2bdname
                     else:
                         maxnbd = 34
-                        from .chan_util_bc import freq2bdname
+                        from eovsapy.chan_util_bc import freq2bdname
                     dtp1 = st_time - phacal_time
                     dtp2 = en_time - phacal_time
                     if dtp1.jd < 0 and dtp2.jd > 0:
@@ -1138,8 +1138,8 @@ class App():
 def findscans(trange):
     '''Identify phasecal scans from UFDB files
     '''
-    from . import dbutil
-    from . import dump_tsys
+    from eovsapy import dbutil
+    from eovsapy import dump_tsys
     tstart, tend = trange.lv.astype(int).astype(str)
     cnxn, cursor = dbutil.get_cursor()
     verstr = dbutil.find_table_version(cursor, tstart, True)
@@ -1181,9 +1181,9 @@ def rd_refcal(file, quackint=120., navg=3):
     ''' Reads a single UDB file representing a calibrator scan, and averages over the
         bands in the file
     '''
-    from .read_idb import read_idb, bl2ord
+    from eovsapy.read_idb import read_idb, bl2ord
     from copy import deepcopy
-    from . import dbutil as db
+    from eovsapy import dbutil as db
     
     out = read_idb([file], navg=navg, quackint=quackint)
 
@@ -1193,10 +1193,10 @@ def rd_refcal(file, quackint=120., navg=3):
     mjd = Time(out['time'][0],format='jd').mjd
     if mjd > 58536:
         maxnbd = 52
-        from .chan_util_52 import freq2bdname
+        from eovsapy.chan_util_52 import freq2bdname
     else:
         maxnbd = 34
-        from .chan_util_bc import freq2bdname
+        from eovsapy.chan_util_bc import freq2bdname
     vis = np.zeros((15, 4, maxnbd, nt), dtype=complex)
     fghz = np.zeros(maxnbd)
     # average over channels within each band
@@ -1320,8 +1320,8 @@ def fix_time_drift(out):
 
 def sql2refcalX(trange, *args, **kwargs):
     ''' Returns SQL refcal calibration records for the given timerange. trange can be either a timestamp or a timerange.'''
-    from . import cal_header as ch
-    from .util import extract
+    from eovsapy import cal_header as ch
+    from eovsapy.util import extract
     caltype = 8
     xml, bufs = ch.read_calX(caltype, t=trange, *args, **kwargs)
     if isinstance(bufs, np.ndarray):
@@ -1357,8 +1357,8 @@ def sql2refcalX(trange, *args, **kwargs):
 def sql2phacalX(trange, *args, **kwargs):
     '''Supply a timestamp in Time format, return the closest phacal data.
         If a time range is provided, return records within the time range.'''
-    from . import cal_header as ch
-    from .util import extract
+    from eovsapy import cal_header as ch
+    from eovsapy.util import extract
     xml, bufs = ch.read_calX(9, t=trange, *args, **kwargs)
     if isinstance(bufs, np.ndarray):
         phacals = []
