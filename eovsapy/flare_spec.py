@@ -58,6 +58,7 @@ from . import read_idb as ri
 import os
 import re
 import pwd
+plt.rcParams.update({'font.size': 12})
 
 
 def sanitize_filename(name):
@@ -378,7 +379,8 @@ def spec_data_to_fits(time, fghz, spec, spec_type='tp', tpk=None, tbg_str=None, 
  
 
 def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110], bg2idx=None, 
-        vmin=0.1, vmax=10, lcfreqs=[25, 235], filename=None, tpk=None, writefits=False, observer=None):
+        vmin=0.1, vmax=10, lcfreqs=[25, 235], filename=None, tpk=None, writefits=False, observer=None,
+        timerange=None, freqrange=None, spec_yscale='log', lc_yscale='linear'):
     ''' Makes the final, nicely formatted plot and saves the spectrogram as a binary data
         file for subsequent sharing/plotting.  It used the out from inspect()
         and makes a background-subtracted two-panel plot with properly formatted axes.  The
@@ -386,7 +388,7 @@ def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110]
         frequency indexes specified by the lcfreqs list.  The background is generated from 
         a mean of the spectra over time indexes given by bgidx.  This can be called multiple times
         with filename=None to get the parameters right, then a final time with a name specified,
-        which becomes the name of the plot and the output binary file.
+        which becomes the name of the plot and the output FITS file.
         
         Inputs:
           out       The standard output dictionary from read_idb (returned by inspect()), needed
@@ -412,6 +414,11 @@ def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110]
           writefits If True, produce fits and png files. Default is False - only write them out once you are confident enough
           observer  Name of the observer who is doing this. This will be written into the header of the generated FITS file.
                     If not provided, use the user name on pipeline.
+          timerange time range of the plot. A 2-element list with time format compatible with astropy.time.Time.
+                        e.g.,['2022-08-30T17:40', '2022-08-30T18:50'] 
+          freqrange frequency range of the plot. A 2-element list of frequency bounds in GHz, e.g., [1.2, 18.] 
+          spec_yscale control whether the y axis of the spectrogram plot is in log or linear scale. Default to 'log'
+          lc_yscale control whether the y axis of the light curve plot is in log or linear scale. Default to 'linear'
           
         Outputs:
           f         The handle to the plot figure, in case you want to do some tweaks.  After tweaking,
@@ -434,6 +441,7 @@ def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110]
         spec_type_str = 'spec_tp'
         spec_type_desc = 'Total-Power Spectrogram'
     nf, nt = spec.shape
+    fghz = out['fghz']
     ti = (out['time'] - out['time'][0])/(out['time'][-1] - out['time'][0]) # Relative time (0-1) of each datapoint
     if bgidx is None:
         from copy import deepcopy
@@ -475,28 +483,48 @@ def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110]
         else:
             tbg2_str = [times[bg2idx[0]].isot, times[bg2idx[1]].isot]
 
-    f = plt.figure(figsize=[14,8])
-    ax0 = plt.subplot(211)
-    ax1 = plt.subplot(212)
-    im2 = ax0.pcolormesh(times.plot_date,out['fghz'],np.log10(np.clip(subspec+vmin,vmin,vmax)))
+    #f = plt.figure(figsize=[14,8])
+    #ax0 = plt.subplot(211)
+    #ax1 = plt.subplot(212)
+    f, (ax0, ax1) = plt.subplots(2, 1, sharex=True, figsize=(14,8), layout='compressed')
+    im2 = ax0.pcolormesh(times.plot_date,fghz, subspec, norm=colors.LogNorm(vmin=vmin, vmax=vmax, clip=True))
     for frq in lcfreqs:
         lc = np.nanmean(subspec[frq-5:frq+5],0)
-        ax1.step(times.plot_date,lc,label=str(out['fghz'][frq])[:6]+' GHz')
-    ax1.set_ylim(-0.9,vmax)
+        ax1.step(times.plot_date,lc,label=str(fghz[frq])[:6]+' GHz')
+    ax1.set_ylim(0.1,vmax)
     ax1.xaxis_date()
     ax1.xaxis.set_major_formatter(DateFormatter("%H:%M"))
     ax0.xaxis_date()
+    clb=plt.colorbar(im2, ax=ax0, pad=0.05)
+    clb.ax.set_title('Flux (sfu)',fontsize=10)
     ax1.set_xlabel('Time [UT]')
     ax1.set_ylabel('Flux Density [sfu]')
     ax0.set_ylabel('Frequency [GHz]')
     ax0.set_title(f'EOVSA {spec_type_desc} for '+times[0].iso[:10])
     ax0.xaxis.set_major_formatter(DateFormatter("%H:%M"))
-    ax1.set_xlim(times[[0,-1]].plot_date)
-    ax0.set_xlim(times[[0,-1]].plot_date)
+    ax0.set_yscale(spec_yscale)
+    ax1.set_yscale(lc_yscale)
+    if timerange is None:
+        ax0.set_xlim(times[[0,-1]].plot_date)
+        ax1.set_xlim(times[[0,-1]].plot_date)
+    else:
+        try:
+            timerange_pd = Time(timerange).plot_date
+            ax0.set_xlim(timerange_pd)
+            ax1.set_xlim(timerange_pd)
+        except:
+            print('timerange not recognized. Must by astropy.time.Time format, e.g., yyyy-mm-ddThh:mm:ss.')
+    if not (freqrange is None):
+        try:
+            ax0.set_ylim(freqrange)
+        except:
+            print('freqrange not recognized. Must by a 2-element list in GHz, e.g., [1.5, 13.5]')
+
+
     ax1.legend()
     if spec_type == 'xp':
-        ax1.text(0.01, 0.98, 'These are NOT the actual flux. Use with caution!', fontsize=15, transform=ax1.transAxes, ha='left', va='top')
-    ax0.set_yscale('log')
+        ax1.text(0.01, 0.98, 'These are NOT the actual flux. Use with caution!', fontsize=18, transform=ax1.transAxes, ha='left', va='top')
+    #plt.tight_layout()
     if writefits:
         print('I am asked to write out fits files.')
         if tpk is None:
@@ -516,7 +544,6 @@ def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110]
         # Check if name ends with an acceptable extension, append '.png' if it doesn't
         if not any(filename.lower().endswith(ext) for ext in acceptable_extensions):
             figname = filename + '.png'
-        plt.tight_layout()
         f.savefig(figname)
         fitsfile = spec_data_to_fits(out['time'], out['fghz'], subspec, tpk=tpk, tbg_str=tbg_str, tbg2_str=tbg2_str, 
                 ant_str=ant_str, spec_type=spec_type, fitsfile=filename + '.fits', observer=observer)
