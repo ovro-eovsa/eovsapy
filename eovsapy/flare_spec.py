@@ -535,8 +535,8 @@ def make_plot(out, spec=None, spec_type='tp', ant_str='ant1-13', bgidx=[100,110]
             print('The flare peak time is not recognized. Please provide it in format recognized by astropy.time.Time, e.g., "yyyy-mm-dd hh:mm:ss" format.')
             print('Abort writing to FITS.')
             
-        # Convert peak time to flare_id
-        flare_id = tpkstr[:19].replace('-','').replace('T','').replace(':','')
+        # Convert peak time to flare_id. Format is yyyymmddhhmm
+        flare_id = tpkstr[:16].replace('-','').replace('T','').replace(':','')
         if not filename:
             filename = f'eovsa.{spec_type_str}.flare_id_{flare_id}'
         filename = sanitize_filename(filename)
