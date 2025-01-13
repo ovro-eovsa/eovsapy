@@ -139,8 +139,8 @@ def get_fem_level(trange, dt=None):
         if dt:
             # If we want other than full cadence, get new array shapes and times
             n = len(data['Timestamp'])  # Original number of times
-            new_n = (n//nant//dt)*tdim*dt     # Truncated number of times equally divisible by dt
-            new_shape = (n//nant//dt,nant) # New shape of truncated arrays
+            new_n = (n//tdim//dt)*tdim*dt     # Truncated number of times equally divisible by dt
+            new_shape = (n//tdim//dt,tdim) # New shape of truncated arrays
             times = Time(data['Timestamp'][:new_n].astype('int')[int(tdim*dt//2)::tdim*dt],format='lv')
         else:
             times = Time(data['Timestamp'].astype('int')[::tdim],format='lv')
