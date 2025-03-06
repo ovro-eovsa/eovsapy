@@ -1221,11 +1221,11 @@ def read_cal_xml(caltype, t=None):
 
 
 #def read_cal_xmlX(caltype, t=None, verbose=True, neat=False, gettime=False):
-#   ''' Read the calibration type definition xml record of the given type, for the 
+#   ''' Read the calibration type definition xml record of the given type, for the
 #       given time or time-range (as a Time() object), or for the current time if None.
-#       :param caltype: 
-#       :param t: 
-#       :param verbose: 
+#       :param caltype:
+#       :param t:
+#       :param verbose:
 #       :param neat: If True, throw away the obsolete records if t is time range.
 #       Returns a dictionary of look-up information and its internal version.  A side-effect
 #       is that a file /tmp/type<n>.xml is created, where <n> is the type.
@@ -1360,23 +1360,38 @@ def read_cal(caltype, t=None, verbose=False):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse=False):
-    ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
-        or for the current time if None.
-        :param caltype: 
-        :param t: 
-        :param verbose: 
-        :param neat: If True, throw away the obsolete records if t is time range.
-        :return: 
-        a dictionary of look-up information and a binary buffer containing the 
-        calibration record. If time-range is provided, a list of binary buffers will be returned.
-    '''
-    ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
-        or for the current time if None.
+def read_calX(caltype, t=None, nrecords=1, verbose=True, neat=False, gettime=False, reverse=False):
+    """
+    Read the calibration data for the given type at a specific time or over a time range.
 
-        Returns a dictionary of look-up information and a binary buffer containing the 
-        calibration record. If time-range is provided, a list of binary buffers will be returned.
-    '''
+    If t is a single Time object (or None, which defaults to the current time), the function
+    returns the record nearest to that time. If t is provided as a Time array, list, or tuple
+    of two Time objects, it returns all records within that time range.
+
+    :param caltype: Calibration type identifier, defaults to None.
+    :type caltype: int or str (optional)
+    :param t: A Time object for a single time or a collection of two Time objects specifying a time range,
+              defaults to the current time.
+    :type t: astropy.time.Time, or list(Time) or tuple(Time) (optional)
+    :param nrecords: Number of records to return when a single time is provided; set to 0 to return all records,
+                     defaults to 1.
+    :type nrecords: int (optional)
+    :param verbose: If True, print debugging information, defaults to True.
+    :type verbose: bool (optional)
+    :param neat: If True, discard obsolete records when a time range is provided, defaults to False.
+    :type neat: bool (optional)
+    :param gettime: If True, also return a list of timestamp strings for the returned records, defaults to False.
+    :type gettime: bool (optional)
+    :param reverse: If True, sort results in ascending order by Timestamp; otherwise, descending, defaults to False.
+    :type reverse: bool (optional)
+
+    :raises OSError: If an error occurs during file operations.
+    :raises Exception: If an error occurs during the database query or XML processing.
+
+    :return: A tuple containing a dictionary of lookup information and a binary buffer (or list of binary buffers)
+             of the calibration record. If gettime is True, a list of timestamp strings is also returned.
+    :rtype: tuple(dict, bytes) or tuple(dict, list(bytes)) or tuple(dict, list(bytes), list(str))
+    """
     if t is None:
         t = Time.now()
 
@@ -1394,9 +1409,10 @@ def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse=
     cnxn, cursor = dbutil.get_cursor()
     if str(type(cursor)).find('pyodbc') == -1:
         query1 = 'select '
-        query2 = ' limit 1'
+        query2 = ' limit ' + str(nrecords)
     else:
-        query1 = 'set textsize 2147483647 select top 1 '
+        query1 = 'set textsize 2147483647 select top ' + str(nrecords) + ' ' \
+            if nrecords >0 else 'set textsize 2147483647 select '
         query2 = ''
 
     if xmldict != {}:

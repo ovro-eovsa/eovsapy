@@ -270,7 +270,7 @@ def combine_subtracted(out, bgidx=[100,110], ant_str='ant1-13', spec_type='tp'):
             for j in ants[k+1:]:
                 idx.append(ri.bl2ord[i,j])
         idx = np.array(idx)
-        good, = np.where(np.logical_and(blen[idx] > 150.,blen[idx] < 1000.))
+        good, = np.where(np.logical_and(blen[idx] > 150.,blen[idx] < 1000.)) ## uvw is in unit of lambda
         bgd = np.nanmedian(np.abs(out['x'][idx[good],0,:,bgidx[0]:bgidx[1]]),2).repeat(nt).reshape(len(idx[good]),nf,nt)
         spec = np.nanmedian(np.abs(out['x'][idx[good],0])-bgd,0)
     elif spec_type == 'tp':
