@@ -1,7 +1,7 @@
 def find_calibrations(year, month):
     import calendar
-    from .util import Time, extract
-    from . import cal_header as ch
+    from eovsapy.util import Time, extract
+    from eovsapy import cal_header as ch
     hc = calendar.HTMLCalendar(calendar.SUNDAY)
     html_table = hc.formatmonth(year, month)
     lines = html_table.split('\n')

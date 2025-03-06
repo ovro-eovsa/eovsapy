@@ -49,6 +49,9 @@
 #   2022-May-20  DG
 #      Rewrote get_cursor() to try three possible databases in a specific
 #      order.  Now requires a .netrc file.
+#   2025-Jan-11  DG
+#      Made a few changes to deal with new SQL version 67, where the dimension 16
+#      table has the antenna information and the dimension 15 table is gone.
      
 import mysql.connector
 from .util import Time
@@ -208,8 +211,13 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
     if type(nrecs) != int:
         print('NRecs must be int type.')
         return {}
-    nvals = dimension*nrecs
     # Generate table name
+    outdim = dimension
+    if version > 66 and dimension == 15:
+        # In version 67, the old dimension 15 things are in table of dimension 16
+        dimension = 16
+        outdim = 15
+    nvals = dimension*nrecs
     table = 'fV'+str(version)+'_vD'+str(dimension)
     # Generate query
     if mysql:
@@ -239,6 +247,10 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
         outdict = dict(list(zip(names,data)))
     except:
         outdict = {}
+    if outdim != dimension:
+        # Truncate each item in outdict to length outdim
+        for k,v in outdict.items():
+            outdict[k] = v[:,:outdim]
     return outdict
     
 def do_query(cursor,query):
@@ -272,7 +284,13 @@ def a14_wscram(trange):
     tstart,tend = [str(i) for i in trange.lv]
     cnxn, cursor = get_cursor()
     ver = find_table_version(cursor,trange[0].lv)
-    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
+    if int(ver) > 66:
+        tdim = 16
+        idx = 'I16'
+    else:
+        tdim = 15
+        idx = 'I15'
+    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD'+str(tdim)+' where (I'+idx+' = 13) and Timestamp between '+tstart+' and '+tend
     data, msg = do_query(cursor, query)
     if msg == 'Success':
         try:
@@ -313,7 +331,11 @@ def get_motor_currents(trange):
     tstart,tend = [str(i) for i in trange.lv]
     cnxn, cursor = get_cursor()
     ver = find_table_version(cursor,trange[0].lv)
-    query = 'select Timestamp,Ante_Cont_AzimuthMotorCurrent,Ante_Cont_ElevationMotorCurrent from fV'+ver+'_vD15 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+    if int(ver) > 66:
+        tdim = 16
+    else:
+        tdim = 15
+    query = 'select Timestamp,Ante_Cont_AzimuthMotorCurrent,Ante_Cont_ElevationMotorCurrent from fV'+ver+'_vD'+str(tdim)+' where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
     data, msg = do_query(cursor, query)
     cnxn.close()
     if msg == 'Success':
@@ -381,11 +403,16 @@ def loadsfdata(fld,trange,ant,interval=None):
     
     for f in fld:
         query+=','+f
-    if interval == None:
-        query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+    if int(ver) < 67:
+        if interval == None:
+            query+=' from fV'+ver+'_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+        else:
+            query+=' from fV'+ver+'_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
     else:
-        query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
-    
+        if interval == None:
+            query+=' from fV'+ver+'_vD16 where (I16 % 16) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+        else:
+            query+=' from fV'+ver+'_vD16 where (I16 % 16) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
     data,msg=do_query(cursor,query)
     return data,msg
 

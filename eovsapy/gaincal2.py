@@ -61,6 +61,10 @@
 #    take the first nt records after 13:30 UT.  This is not guaranteed to be a
 #    reference gain state, but it has some chance to be so.  This is a very rare
 #    occurrence.
+#  2025-01-11  DG
+#    Changes needed because of changes to SQL tables (16 ants and DCMs).  This
+#    version simply truncates the output to the usual 15 channels, but when the
+#    new dishes are online this will have to a changed again.
 #
 from . import dbutil as db
 from . import read_idb as ri
@@ -121,28 +125,32 @@ def get_fem_level(trange, dt=None):
         tend = str(np.round(trange[1].lv + dt/2))
     cnxn, cursor = db.get_cursor()
     ver = db.find_table_version(cursor,trange[0].lv)
+    if int(ver) > 66:
+        tdim = 16   # Antenna info is in dimension 16 table starting with version 67
+    else:
+        tdim = 15
     # Get front end attenuator states
     query = 'select Timestamp,Ante_Fron_FEM_Clockms,' \
             +'Ante_Fron_FEM_HPol_Regi_Level,Ante_Fron_FEM_VPol_Regi_Level from fV' \
-            +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
+            +ver+'_vD'+str(tdim)+' where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
         nant = 15
         if dt:
             # If we want other than full cadence, get new array shapes and times
             n = len(data['Timestamp'])  # Original number of times
-            new_n = (n//nant//dt)*nant*dt     # Truncated number of times equally divisible by dt
-            new_shape = (n//nant//dt,nant) # New shape of truncated arrays
-            times = Time(data['Timestamp'][:new_n].astype('int')[int(nant*dt//2)::nant*dt],format='lv')
+            new_n = (n//tdim//dt)*tdim*dt     # Truncated number of times equally divisible by dt
+            new_shape = (n//tdim//dt,tdim) # New shape of truncated arrays
+            times = Time(data['Timestamp'][:new_n].astype('int')[int(tdim*dt//2)::tdim*dt],format='lv')
         else:
-            times = Time(data['Timestamp'].astype('int')[::nant],format='lv')
+            times = Time(data['Timestamp'].astype('int')[::tdim],format='lv')
         hlev = data['Ante_Fron_FEM_HPol_Regi_Level'].astype(int)
         vlev = data['Ante_Fron_FEM_VPol_Regi_Level'].astype(int)
         ms = data['Ante_Fron_FEM_Clockms']
-        nt = len(hlev)//nant
-        hlev.shape = (nt,nant)
-        vlev.shape = (nt,nant)
-        ms.shape = (nt,nant)
+        nt = len(hlev)//tdim
+        hlev.shape = (nt,tdim)
+        vlev.shape = (nt,tdim)
+        ms.shape = (nt,tdim)
         # Find any entries for which Clockms is zero, which indicates where no
         # gain-state measurement is available.
         for i in range(nant):
@@ -159,8 +167,8 @@ def get_fem_level(trange, dt=None):
             hlevout = []
             vlevout = []
             # Determine proportion of each state within each dt time integration
-            for i in range(new_n//dt//nant):
-                for j in range(nant):
+            for i in range(new_n//dt//tdim):
+                for j in range(tdim):
                     hlevout.append(proportion(hlev[i*dt:(i+1)*dt,j]))
                     vlevout.append(proportion(vlev[i*dt:(i+1)*dt,j]))
             # Note, for the dt case hlev and vlev are an array of dicts with keys being
@@ -193,7 +201,7 @@ def get_fem_level(trange, dt=None):
                     +ver+'_vD50 where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
             data, msg = db.do_query(cursor, query)
             if msg == 'Success':
-                otimes = Time(data['Timestamp'].astype('int')[::15],format='lv')
+                otimes = Time(data['Timestamp'].astype('int')[::50],format='lv')
                 dcmoff = data['DCMoffset_attn']
                 dcmoff.shape = (nt, 50)
                 # We now have a time-history of offsets, at least some of which are non-zero.
@@ -225,7 +233,10 @@ def get_fem_level(trange, dt=None):
         print('Error reading DPPon state:',msg)
         dcm_off = None
     cnxn.close()
-    return {'times':times,'hlev':hlev,'vlev':vlev,'dcmattn':dcmattn,'dcmoff':dcm_off}
+    # tdim is the number of dimensions in SQL tables, while nant is the number of antennas. These are both
+    # 15 prior to V67 SQL tables, but tdim=16 (while nant remains 15) in V67, at least until we get 16 ants...
+    # The statement below returns only the first nant attenuations.
+    return {'times':times,'hlev':hlev[:nant],'vlev':vlev[:nant],'dcmattn':dcmattn,'dcmoff':dcm_off}
     
 def get_gain_state(trange, dt=None, relax=False):
     ''' Get all gain-state information for a given timerange.  Returns a dictionary
@@ -258,19 +269,24 @@ def get_gain_state(trange, dt=None, relax=False):
         tend = str(np.round(trange[1].lv + dt/2))
     cnxn, cursor = db.get_cursor()
     ver = db.find_table_version(cursor,trange[0].lv)
+    if int(ver) > 66:
+        tdim = 16   # Antenna info is in dimension 16 table starting with version 67
+    else:
+        tdim = 15
+
     # Get front end attenuator states
     # Attempt to solve the problem if there are no data 
     if relax:
         # Special case of reference gain, where we want the first nt records after tstart, in case there
         # are no data at time tstart
-        nt = int(float(tend) - float(tstart) - 1)*15
+        nt = int(float(tend) - float(tstart) - 1)*tdim
         query = 'select top '+str(nt)+' Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
             +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
-            +ver+'_vD15 where Timestamp >= '+tstart+' order by Timestamp'
+            +ver+'_vD'+str(tdim)+' where Timestamp >= '+tstart+' order by Timestamp'
     else:
         query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
             +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
-            +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp < '+tend+' order by Timestamp'
+            +ver+'_vD'+str(tdim)+' where Timestamp >= '+tstart+' and Timestamp < '+tend+' order by Timestamp'
     #if dt:
     #    # If dt (seconds between measurements) is set, add appropriate SQL statement to query
     #    query += ' and (cast(Timestamp as bigint) % '+str(dt)+') = 0 '
@@ -279,11 +295,11 @@ def get_gain_state(trange, dt=None, relax=False):
         if dt:
             # If we want other than full cadence, get new array shapes and times
             n = len(data['Timestamp'])  # Original number of times
-            new_n = (n//15//dt)*15*dt     # Truncated number of times equally divisible by dt
-            new_shape = (n//15//dt,dt,15) # New shape of truncated arrays
-            times = Time(data['Timestamp'][:new_n].astype('int')[::15*dt],format='lv')
+            new_n = (n//tdim//dt)*tdim*dt     # Truncated number of times equally divisible by dt
+            new_shape = (n//tdim//dt,dt,tdim) # New shape of truncated arrays
+            times = Time(data['Timestamp'][:new_n].astype('int')[::tdim*dt],format='lv')
         else:
-            times = Time(data['Timestamp'].astype('int')[::15],format='lv')
+            times = Time(data['Timestamp'].astype('int')[::tdim],format='lv')
         # Change tstart and tend to correspond to actual times from SQL
         tstart, tend = [str(i) for i in times[[0,-1]].lv]
         h1 = data['Ante_Fron_FEM_HPol_Atte_First']
@@ -291,15 +307,15 @@ def get_gain_state(trange, dt=None, relax=False):
         v1 = data['Ante_Fron_FEM_VPol_Atte_First']
         v2 = data['Ante_Fron_FEM_VPol_Atte_Second']
         ms = data['Ante_Fron_FEM_Clockms']
-        nt = len(h1)//15
-        h1.shape = (nt,15)
-        h2.shape = (nt,15)
-        v1.shape = (nt,15)
-        v2.shape = (nt,15)
-        ms.shape = (nt,15)
+        nt = len(h1)//tdim
+        h1.shape = (nt,tdim)
+        h2.shape = (nt,tdim)
+        v1.shape = (nt,tdim)
+        v2.shape = (nt,tdim)
+        ms.shape = (nt,tdim)
         # Find any entries for which Clockms is zero, which indicates where no
         # gain-state measurement is available.
-        for i in range(15):
+        for i in range(tdim):
             bad, = np.where(ms[:,i] == 0)
             if bad.size != 0 and bad.size != nt:
                 # Find nearest adjacent good value
@@ -311,10 +327,10 @@ def get_gain_state(trange, dt=None, relax=False):
                 v2[bad,i] = v2[good[idx],i]
         if dt:
             # If we want other than full cadence, find mean over dt measurements
-            h1 = np.mean(h1[:new_n//15].reshape(new_shape),1)
-            h2 = np.mean(h2[:new_n//15].reshape(new_shape),1)
-            v1 = np.mean(v1[:new_n//15].reshape(new_shape),1)
-            v2 = np.mean(v2[:new_n//15].reshape(new_shape),1)
+            h1 = np.mean(h1[:new_n//tdim].reshape(new_shape),1)
+            h2 = np.mean(h2[:new_n//tdim].reshape(new_shape),1)
+            v1 = np.mean(v1[:new_n//tdim].reshape(new_shape),1)
+            v2 = np.mean(v2[:new_n//tdim].reshape(new_shape),1)
         # Put results in canonical order [nant, nt]
         h1 = h1.T
         h2 = h2.T
@@ -327,7 +343,7 @@ def get_gain_state(trange, dt=None, relax=False):
     xml, buf = ch.read_cal(2, t=trange[0])
     dcmattn = extract(buf,xml['Attenuation'])
     nbands = dcmattn.shape[0]
-    dcmattn.shape = (nbands, 15, 2)
+    dcmattn.shape = (nbands, dcmattn.shape[1]//2, 2)
     # Put into canonical order [nant, npol, nband]
     dcmattn = np.moveaxis(dcmattn,0,2)
     # See if DPP offset is enabled
@@ -379,7 +395,10 @@ def get_gain_state(trange, dt=None, relax=False):
         print('Error reading DPPon state:',msg)
         dcm_off = None
     cnxn.close()
-    return {'times':times,'h1':h1,'v1':v1,'h2':h2,'v2':v2,'dcmattn':dcmattn,'dcmoff':dcm_off}
+    # tdim is the number of dimensions in SQL tables, while nant is the number of antennas. These are both
+    # 15 prior to V67 SQL tables, but tdim=16 (while nant remains 15) in V67, at least until we get 16 ants...
+    # The statement below returns only the first nant attenuations.
+    return {'times':times,'h1':h1[:nant],'v1':v1[:nant],'h2':h2[:nant],'v2':v2[:nant],'dcmattn':dcmattn,'dcmoff':dcm_off}
 
 def apply_fem_level(data, skycal={}, gctime=None):
     ''' Applys the FEM level corrections to the given data dictionary.
@@ -401,6 +420,7 @@ def apply_fem_level(data, skycal={}, gctime=None):
     from . import attncal as ac
     import copy
 
+    nant = 15
     # Get timerange from data
     trange = Time([data['time'][0],data['time'][-1]],format='jd')
     if gctime is None:
@@ -477,18 +497,18 @@ def apply_fem_level(data, skycal={}, gctime=None):
         cdata['p'][:13] -= bgd[:,:,:,idx]
         cdata['a'][:13,:2] -= bgd_auto[:,:,:,idx]
     # Correct the power,
-    cdata['p'][:15] *= antgainf[:,:,:,idx]
+    cdata['p'][:nant] *= antgainf[:,:,:,idx]
     # Correct the autocorrelation
-    cdata['a'][:15,:2] *= antgainf[:,:,:,idx]
+    cdata['a'][:nant,:2] *= antgainf[:,:,:,idx]
     # If a skycal dictionary exists, add back the receiver noise
     #if skycal:
     #    cdata['p'][:13] += bgd[:,:,:,idx]
     #    cdata['a'][:13,:2] += bgd_auto[:,:,:,idx]
     cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
-    cdata['a'][:15,2] *= cross_fac[:,:,idx]
-    cdata['a'][:15,3] *= cross_fac[:,:,idx]
+    cdata['a'][:nant,2] *= cross_fac[:,:,idx]
+    cdata['a'][:nant,3] *= cross_fac[:,:,idx]
     # Correct the power-squared -- this should preserve SK
-    cdata['p2'][:15] *= antgainf[:,:,:,idx]**2
+    cdata['p2'][:nant] *= antgainf[:,:,:,idx]**2
     # Remove any uncorrected times before returning
     #cdata['time'] = cdata['time'][idx1]
     #cdata['p'] = cdata['p'][:,:,:,idx1]
@@ -513,6 +533,7 @@ def apply_gain_corr(data, tref=None):
     '''
     from .util import fname2mjd, common_val_idx, nearest_val_idx
     import copy
+    nant = 15
     if tref is None:
         # No reference time specified, so get nearest PHASECAL scan (should guarantee femauto-off state)
         mjd = int(Time(data['time'][0],format='jd').mjd)
@@ -570,8 +591,8 @@ def apply_gain_corr(data, tref=None):
     nf = len(fghz)
     blist = (fghz*2 - 1).astype(int) - 1
     blgain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
-    for i in range(14):
-         for j in range(i+1,15):
+    for i in range(nant-1):
+         for j in range(i+1,nant):
              blgain[ri.bl2ord[i,j],0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
              blgain[ri.bl2ord[i,j],1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
              blgain[ri.bl2ord[i,j],2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
@@ -584,14 +605,14 @@ def apply_gain_corr(data, tref=None):
     # Correct the cross-correlation data
     cdata['x'] *= blgain[:,:,:,idx]
     # Correct the power
-    cdata['p'][:15] *= antgainf[:,:,:,idx]
+    cdata['p'][:nant] *= antgainf[:,:,:,idx]
     # Correct the autocorrelation
-    cdata['a'][:15,:2] *= antgainf[:,:,:,idx]
+    cdata['a'][:nant,:2] *= antgainf[:,:,:,idx]
     cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
-    cdata['a'][:15,2] *= cross_fac[:,:,idx]
-    cdata['a'][:15,3] *= cross_fac[:,:,idx]
+    cdata['a'][:nant,2] *= cross_fac[:,:,idx]
+    cdata['a'][:nant,3] *= cross_fac[:,:,idx]
     # Correct the power-squared -- this should preserve SK
-    cdata['p2'][:15] *= antgainf[:,:,:,idx]**2
+    cdata['p2'][:nant] *= antgainf[:,:,:,idx]**2
     # Remove any uncorrected times before returning
     #cdata['time'] = cdata['time'][idx1]
     #cdata['p'] = cdata['p'][:,:,:,idx1]
