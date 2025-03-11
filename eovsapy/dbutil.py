@@ -358,6 +358,8 @@ def get_reboot(trange,previous=False):
     '''
     import numpy as np
     t0, t1 = trange.lv.astype(np.int64)
+    if t0>t1:
+        return None
     tmjd = trange[0].mjd
     cnxn, cursor = get_cursor()
     ver = find_table_version(cursor,t0,scan_header=True)
