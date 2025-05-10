@@ -934,7 +934,7 @@ def flag_sk(out):
 #    t = Time(fstr)
 #    return t.mjd
 
-def get_trange_files(trange):
+def get_trange_files0(trange):
     #Given a timerange, this routine will take all relevant IDBfiles from
     #  that time range, put them in a list, and return that list.
     #  This function is used in get_X_data(data).
@@ -968,20 +968,58 @@ def get_trange_files(trange):
             files2 = glob.glob(folder+'IDB'+fstr2.replace('-','').split()[0]+'*')
             files2.sort()
             files += files2
-
-#    def fname2mjd(filename):
-#        fstem = filename.split('/')[-1]
-#        fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
-#        t = Time(fstr)
-#        return t.mjd
-
     filelist = []
     for filename in files:
         mjd = fname2mjd(filename)
         if mjd >= trange[0].mjd and mjd < trange[1].mjd:
             filelist.append(filename)
     return filelist
-    
+
+
+def get_trange_files(trange):
+    # Given a timerange, this routine will take all relevant IDBfiles from
+    #  that time range, put them in a list, and return that list.
+    #  This function is used in get_X_data(data).
+    from .util import get_idbdir, fname2mjd
+
+    t0, t1 = trange
+    mjd0, mjd1 = t0.mjd, t1.mjd
+
+    # figure out which integer days we need to touch
+    day_start = int(np.floor(mjd0))
+    day_end   = int(np.floor(mjd1))
+    files = []
+    # Add date path if on pipeline
+    import socket
+    host = socket.gethostname()
+
+    for mjd_day in range(day_start, day_end + 1):
+        # build a Time for the day‐midnight
+        day = Time(mjd_day, format='mjd')
+        # base directory for that day
+        datadir = get_idbdir(day)
+        # if on the pipeline host, there’s a date‐named subfolder
+        if host == 'pipeline':
+            date_str = day.iso.split()[0].replace('-', '')
+            datadir = os.path.join(datadir, date_str)
+
+        # make sure the directory exists
+        if not os.path.isdir(datadir):
+            continue
+
+        # glob all IDB files for that calendar date
+        prefix = day.iso.split()[0].replace('-', '')
+        pattern = os.path.join(datadir, f"IDB{prefix}*")
+        day_files = sorted(glob.glob(pattern))
+
+        # filter by the exact mjd window
+        for fn in day_files:
+            file_mjd = fname2mjd(fn)
+            if mjd0 <= file_mjd < mjd1:
+                files.append(fn)
+
+    return sorted(files)
+
 
 def unrot(data, azeldict=None):
     ''' Apply the correction to differential feed rotation to data, and return
