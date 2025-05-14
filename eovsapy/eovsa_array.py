@@ -48,52 +48,63 @@
 #      measured reliably due to large Bx, By errors, so it needs another Bz tweak.
 #
 
-import aipy, ephem, numpy
+import numpy as np
+import aipy, ephem
 from math import cos, sin
-from .util import Vector,Time
-from numpy import pi, mat
+from .util import Vector, Time
 
 global lat
-lat = 37.233170*numpy.pi/180       # OVSA Latitude (radians)
+lat = 37.233170 * np.pi / 180  # OVSA Latitude (radians)
+mperns = 0.299792458  # Meters per nanosecond
+
 
 def eovsa_array():
-    ''' Define EOVSA antenna array, which consists of tabulated E,N,U
-        locations of 15 antennas plus "array center", latitude,
+    ''' Define EOVSA-15 antenna array, which consists of tabulated E,N,U
+        locations of 16 antennas plus "array center", latitude,
         longitude and elevation of array center.  Returns AIPY
         AntennaArray object.
+
+        Note: This code is migrated from the eovsa_array0 function used for the EOVSA-13 project.
+
+        In the eovsa_array0 function, ANT 1-13 are the old 2.1-m antennas.
+        ANT 14 is the 27-m antenna A,
+        which is in use for calibration. Ant 15 is the 27-m antenna B, which is not used.
+        Ant 16 is the test input (0,0,0).
+
+        In this function, ANT 1-15 are the new 2.1-m antennas.
+        ANT 16 is the 27-m antenna A for calibration.
     '''
-    global lat
-    mperns = 0.299792458  # Meters per nanosecond
 
-    # Define antenna ENU locations.  Ant 16 is the test input (0,0,0).
+    # Define antenna ENU locations.
     # Divide by mperns to convert m to ns.
-    ante = numpy.array([187.86, 196.15, 175.11, 197.96, 194.11, 147.42,
-                        266.83, 98.95, 20.35, 167.43, -442.00, 640.22,
-                        -329.06, -631.00, -213.00, 0.0])/mperns
-    antn = numpy.array([71.74, 75.14, 77.39, 50.25, 108.86, 35.91,
-                        67.10, 169.34, -218.49, 280.78, -138.59, -355.82,
-                        861.82, -184.00, -187.00, 0.0])/mperns
-    antu = numpy.zeros(16)
+    ante = np.array([187.860, 196.165, 175.009, 197.919, 194.002, 147.429,
+                     266.776, 98.877, 26.259, 163.797, -439.644, 646.063,
+                     -342.089, -229.774, 297.288, -627.209]) / mperns
+    antn = np.array([71.740, 75.103, 77.358, 50.365, 109.684, 36.081,
+                     67.226, 169.520, -223.575, 276.384, -151.356, -348.773,
+                     858.085, -94.521, -281.484, -192.406]) / mperns
+    antu = np.array([-0.000, 0.151, -0.305, -0.122, 0.221, -0.256, -0.106, -0.028,
+                     -3.455, -0.162, -4.643, -1.422, 0.191, -4.339, -0.247, 7.357]) / mperns
 
-    lng = -118.286953*numpy.pi/180      # OVSA Longitude (radians)
-    elev = 1207.0                       # OVSA Elevation (meters)
-    clat = cos(lat)
-    slat = sin(lat)
+    lng = -118.286953 * np.pi / 180  # OVSA Longitude (radians)
+    elev = 1207.0  # OVSA Elevation (meters)
+    clat = np.cos(lat)
+    slat = np.sin(lat)
 
     # Latitude rotation matrix to convert ENU to XYZ
-    latrot = mat([[0, -slat, clat],[1, 0, 0],[0, clat, slat]])
-    f = numpy.array([1.0])
+    latrot = np.mat([[0, -slat, clat], [1, 0, 0], [0, clat, slat]])
+    f = np.array([1.0])
     beam = aipy.phs.Beam(f)
     ants = []
     for i in range(16):
         enu = Vector([ante[i], antn[i], antu[i]])
         x, y, z = enu.rotate(latrot).get()
         # Apply (add) any baseline corrections
-        xp, yp, zp = bl_cor(x,y,z,i) 
-        ants.append(aipy.phs.Antenna(xp,yp,zp,beam))
+        xp, yp, zp = bl_cor(x, y, z, i)
+        ants.append(aipy.phs.Antenna(xp, yp, zp, beam))
 
-    aa = aipy.phs.AntennaArray(ants=ants,location=(lat, lng, elev))
-    aa.horizon='10:30:00'
+    aa = aipy.phs.AntennaArray(ants=ants, location=(lat, lng, elev))
+    aa.horizon = '10:30:00'
     aa.compute_pressure()
     # Create some standard sources for the source catalog
     srcs = []
@@ -105,65 +116,25 @@ def eovsa_array():
     aa.cat = cat
     return aa
 
+
 def bl_cor(x, y, z, iant):
+    '''
+    This function is used to apply the baseline corrections for EOVSA-15 project.
+    '''
 
-    mperns = 0.299792458  # Meters per nanosecond
+    # Initial baseline corrections (all zeros) on2025-05-14
+    dx = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
+    dy = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
+    dz = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
 
-    # Initial baseline corrections (based on Satellite obs. on 2016 Mar 20)
-    dx = numpy.array([ 0.00, 0.08, 0.30, 0.67, 0.35, -0.13, -0.09, 0.94, -6.37, 6.51, 1.15,-12.50, 13.31,  0.0, 0.0, 0.0])
-    dy = numpy.array([ 0.00,-0.45, 0.17,-0.39, 0.18, -0.79, -0.64, 1.47,-23.56,21.54,-2.50,-38.75, 65.38,  0.0, 0.0, 0.0])
-    dz = numpy.array([ 0.00, 0.00, 0.00, 0.00, 0.00,  0.00,  0.00, 0.00,  0.00, 0.00, 0.00,  0.00,  0.00,  0.0, 0.0, 0.0])
-    # Update based on Satellite obs. on 2016 Mar 29 (adds Ant14)
-    dx += numpy.array([0.00, 0.61,-0.22, 0.14,-0.06, -0.19,  0.28,-0.19,  2.38,-1.84,-0.91,  4.58, -7.61,-2.44, 0.0, 0.0])
-    dy += numpy.array([0.00, 0.22, 0.29, 0.44, 0.00,  0.38,  0.17,-0.29,  1.72,-2.97, 1.64,  5.10, -8.89, 3.56, 0.0, 0.0])
-    # Update based on 3C84 obs. on 2016 May 22 -- these are in m, hence the divieion by mperns
-    #                   A1     2     3     4     5     6      7     8      9     10    11     12    13    14
-    dx += numpy.array([0.00, 0.00, 0.00, 0.00, 0.00,  0.00,  0.00, 0.00,  0.00,-4.13,-3.13,  0.0, -3.75,-10.01, 0.0, 0.0])/mperns
-    dy += numpy.array([0.00, 0.00, 0.00, 0.00, 0.00,  0.00,  0.00, 0.00,  0.00,-2.01,-2.01,  0.0, -3.94, -4.88, 0.0, 0.0])/mperns
-    # Update based on 3C273 obs. on 2016 May 27 -- these are in ns
-    dx += numpy.array([0.00,-1.20, 0.66,-0.19, 0.86,  1.33,  0.37,-0.42, 2.41, 0.36,-3.19, 25.91, -1.44,-0.69, 0.0, 0.0])
-    dy += numpy.array([0.00, 0.19,-0.13, 0.05, 0.15,  0.39,  0.68,-0.90, 2.29, 0.22,-0.25, 14.35,  0.00, 0.15, 0.0, 0.0])
-    # Update based on 3C273 and 3C286 obs. on 2016 May 28 -- again in ns
-    dz += numpy.array([0.00,-0.01, 0.98,-0.15,-2.19, -0.10,  0.05, 0.05,19.08,11.80, 7.80,-15.20,  8.75, 6.80, 0.0, 0.0])
-    # Update based on multiple sources on 2016 Nov 17, after axis-offset correction (ants 5-8 not in service) 
-    # Further update 2016 Nov 18
-    #                   A1     2      3      4      5      6     7    8     9      10    11     12     13     14
-    dx += numpy.array([0.00, 0.018, 0.018,-0.035,-0.054,  0.0,  0.0, 0.0, 0.624, 0.388, 0.272,-0.132, 0.582, 0.353, 0.0, 0.0])
-    dy += numpy.array([0.00,-0.018, 0.015, 0.036, 0.017,  0.0,  0.0, 0.0,-0.111,-0.035,-0.025,-0.097,-0.106,-0.035, 0.0, 0.0])    
-    # Update based on 3C273 and 3C286 obs. on 2016 Nov 20 -- again in ns (ants 5-8 not in service)
-    dz += numpy.array([0.00,-0.171,-0.258, 0.114,-0.403,  0.0,  0.0, 0.0, 1.323, 0.363, 31.90, 1.463, 0.798, 0.637, 0.0, 0.0])
-    # Update based on 2136+006 and 2253+161 obs. on 2016 Nov 23, in ns (ants 5-8 not in service).
-    dz += numpy.array([0.00, 0.034, 0.065,-0.106,-0.002,  0.0,  0.0, 0.0,-0.211, 0.101,-3.702,-1.730,-0.206,-0.168, 0.0, 0.0])
-    # Update based on 2136+006 and 2253+161 obs. on 2016 Nov 25, in ns (ants 5-8 not in service).
-    dz += numpy.array([0.00, 0.000,-0.085, 0.000,-0.061,  0.0,  0.0, 0.0, 0.680,-0.039, 7.696,-0.186, 0.607, 0.645, 0.0, 0.0])
-    # Update based on obs. on 2016 Dec 22, in ns (ants 7-8 not in service).
-    dz += numpy.array([0.00,-0.090, 0.010, 0.093, 0.010, 0.190, 0.0, 0.0,-0.394,-0.210,-0.437,-0.193,-0.357,-0.444, 0.0, 0.0])
-    # Update based on obs. on 2017 Jan 06, in ns (ant 7 not in service).  Ant 13 not a good fit.
-    dx += numpy.array([0.00, 0.017, 0.003,-0.037,-0.027, 0.050, 0.0, 0.160,-0.027,-0.057,-0.060,-0.010,-0.130,-0.027,0.0,0.0])
-    dy += numpy.array([0.00, 0.00 ,-0.007, 0.00 , 0.00 ,-0.003, 0.0,-0.057, 0.020, 0.023, 0.027, 0.010,-0.010, 0.017,0.0,0.0])
-    # Update based on obs. on 2017 Mar 23, in ns (ant 12 not in service).  This mainly updates for previous clock error.  Ant 4 is a guess.
-    # Doh!  Errors were given in m, so need to divide by mperns to convert to ns.
-    dx += numpy.array([0.00,-0.007, 0.000,-0.002,-0.001,-0.018,-0.011,-0.024,-0.025,-0.006,-0.080,0.0,-0.121,-0.102,0.0,0.0])/mperns
-    dy += numpy.array([0.00,-0.002, 0.001, 0.000, 0.004,-0.004,-0.012, 0.001,-0.022, 0.014,-0.015,0.0, 0.050,-0.018,0.0,0.0])/mperns
-    # Additional update to Ant 13
-    dx[12] += 0.033/mperns
-    dy[12] += 0.019/mperns
-    dz += numpy.array([0.00, 0.010, 0.002, 0.001, 0.002,-0.005,-0.048,-0.143, 0.003, 0.000, 0.005,0.0,-0.025,0.007,0.0,0.0])/mperns
-    # Very precise corrections based on 2017 Apr. 16 observations [Ant 12 not working]:
-    dx += numpy.array([0.00, 0.024,-0.015, 0.014, 0.010, 0.024, 0.012, 0.029,-0.020,-0.008, 0.012,0.0, 0.020, 0.020,0.0,0.0])
-    dy += numpy.array([0.00, 0.014,-0.003, 0.000, 0.000, 0.006, 0.009, 0.016, 0.005,-0.002, 0.003,0.0, 0.010, 0.002,0.0,0.0])
-    dz += numpy.array([0.00,-0.003,-0.017,-0.013, 0.004,-0.010,-0.011,-0.015,-0.010,-0.013,-0.018,0.0, 0.035,-0.018,0.0,0.0])
-    # New corrections mainly for Ant 12 and Ant 13, based on 2017 Jul 03 observations
-    dx += numpy.array([0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00, 0.045, 0.007, 0.003,0.0,0.0])/mperns
-    dy += numpy.array([0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,-0.031,-0.003, 0.000,0.0,0.0])/mperns
-    dz += numpy.array([0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00, 0.006,  0.00,  0.00, 0.006, 0.000,-0.003, 0.000,0.0,0.0])/mperns
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]
     zp = z - dz[iant]
     return xp, yp, zp
-    
-def suntimes(t=None,out=None):
+
+
+def suntimes(t=None, out=None):
     '''Returns the rise and set times of the Sun for EOVSA (10.5-degree
        horizon) for the day of the given Time() object, or today, 
        if not supplied.  The values are returned as a pair of mjd 
@@ -173,16 +144,17 @@ def suntimes(t=None,out=None):
     aa = eovsa_array()
     if t is None:
         t = Time()
-    date = t.iso.replace('-','/')[:10]+' 20:00'
-    risestr = str(aa.previous_rising(ephem.Sun(),start=date)).replace('/','-')
-    setstr = str(aa.next_setting(ephem.Sun(),start=date)).replace('/','-')
+    date = t.iso.replace('-', '/')[:10] + ' 20:00'
+    risestr = str(aa.previous_rising(ephem.Sun(), start=date)).replace('/', '-')
+    setstr = str(aa.next_setting(ephem.Sun(), start=date)).replace('/', '-')
     if out == 'str':
         return risestr, setstr
-    trange = Time([risestr,setstr])
+    trange = Time([risestr, setstr])
 
     return trange[0].mjd, trange[1].mjd
 
-def sun_risetime(t,limit_deg=10):
+
+def sun_risetime(t, limit_deg=10):
     '''Calculate the times that the Sun rises above a given elevation
        limit for the OVRO site.
 
@@ -190,13 +162,13 @@ def sun_risetime(t,limit_deg=10):
        limit_deg is the elevation limit in degrees (default 10 degrees)
        returns a Time() object for the sun risetime above limit_deg
     '''
-    limit_rad = limit_deg*pi/180  
+    limit_rad = limit_deg * np.pi / 180
     aa = eovsa_array()
     s1 = aipy.phs.RadioSpecial('Sun')
     mjd_day = int(t.mjd)
     # Loop over hour of day
-    for h in range(13,18):
-        jultime = 2400000.5 + mjd_day + h/24.
+    for h in range(13, 18):
+        jultime = 2400000.5 + mjd_day + h / 24.
         aa.set_jultime(jultime)
         s1.compute(aa)
         if s1.alt > limit_rad:
@@ -204,7 +176,7 @@ def sun_risetime(t,limit_deg=10):
             print(s1.alt, h)
             # Loop over minute of hour
             for m in range(60):
-                jultime = 2400000.5 + mjd_day + (h + m/60.)/24.
+                jultime = 2400000.5 + mjd_day + (h + m / 60.) / 24.
                 aa.set_jultime(jultime)
                 s1.compute(aa)
                 if s1.alt > limit_rad:
@@ -212,15 +184,16 @@ def sun_risetime(t,limit_deg=10):
                     print(s1.alt, h, m)
                     # Loop over second of minute
                     for s in range(60):
-                        jultime = 2400000.5 + mjd_day + (h + (m + s/60.)/60.)/24.
+                        jultime = 2400000.5 + mjd_day + (h + (m + s / 60.) / 60.) / 24.
                         aa.set_jultime(jultime)
                         s1.compute(aa)
                         if s1.alt > limit_rad:
                             print(s1.alt, h, m, s)
-                            risetime = Time(mjd_day + (h + (m + s/60.)/60.)/24.,format='mjd')
+                            risetime = Time(mjd_day + (h + (m + s / 60.) / 60.) / 24., format='mjd')
                             return risetime
 
-def sun_settime(t,limit_deg=10):
+
+def sun_settime(t, limit_deg=10):
     '''Calculate the times that the Sun sets below a given elevation
        limit for the OVRO site.:q
 
@@ -228,30 +201,172 @@ def sun_settime(t,limit_deg=10):
        limit_deg is the elevation limit in degrees (default 10 degrees)
        returns a Time() object for the sun settime below limit_deg
     '''
-    limit_rad = limit_deg*pi/180  
+    limit_rad = limit_deg * np.pi / 180
     aa = eovsa_array()
     s1 = aipy.phs.RadioSpecial('Sun')
     mjd_day = int(t.mjd)
     # Loop over hour of day
-    for h in range(22,28):
-        jultime = 2400000.5 + mjd_day + h/24.
+    for h in range(22, 28):
+        jultime = 2400000.5 + mjd_day + h / 24.
         aa.set_jultime(jultime)
         s1.compute(aa)
         if s1.alt < limit_rad:
             h -= 1
             # Loop over minute of hour
             for m in range(60):
-                jultime = 2400000.5 + mjd_day + (h + m/60.)/24.
+                jultime = 2400000.5 + mjd_day + (h + m / 60.) / 24.
                 aa.set_jultime(jultime)
                 s1.compute(aa)
                 if s1.alt < limit_rad:
                     m -= 1
                     # Loop over second of minute
                     for s in range(60):
-                        jultime = 2400000.5 + mjd_day + (h + (m + s/60.)/60.)/24.
+                        jultime = 2400000.5 + mjd_day + (h + (m + s / 60.) / 60.) / 24.
                         aa.set_jultime(jultime)
                         s1.compute(aa)
                         if s1.alt < limit_rad:
-                            settime = Time(mjd_day + (h + (m + s/60.)/60.)/24.,format='mjd')
+                            settime = Time(mjd_day + (h + (m + s / 60.) / 60.) / 24., format='mjd')
                             return settime
 
+
+def eovsa_array0():
+    '''
+        This function is deprecated and replaced by eovsa_array() for the EOVSA-15 project.
+        Define EOVSA-13 antenna array, which consists of tabulated E,N,U
+        locations of 15 antennas plus "array center", latitude,
+        longitude and elevation of array center.  Returns AIPY
+        AntennaArray object.
+
+        In this function, ANT 1-13 are the old 2.1-m antennas. ANT 14 is the 27-m antenna A,
+        which is in use for calibration. Ant 15 is the 27-m antenna B, which is not used.
+        Ant 16 is the test input (0,0,0).
+    '''
+
+    # Define antenna ENU locations.  Ant 16 is the test input (0,0,0).
+    # Divide by mperns to convert m to ns.
+    ante = np.array([187.86, 196.15, 175.11, 197.96, 194.11, 147.42,
+                     266.83, 98.95, 20.35, 167.43, -442.00, 640.22,
+                     -329.06, -631.00, -213.00, 0.0]) / mperns
+    antn = np.array([71.74, 75.14, 77.39, 50.25, 108.86, 35.91,
+                     67.10, 169.34, -218.49, 280.78, -138.59, -355.82,
+                     861.82, -184.00, -187.00, 0.0]) / mperns
+    antu = np.zeros(16)
+
+    lng = -118.286953 * np.pi / 180  # OVSA Longitude (radians)
+    elev = 1207.0  # OVSA Elevation (meters)
+    clat = cos(lat)
+    slat = sin(lat)
+
+    # Latitude rotation matrix to convert ENU to XYZ
+    latrot = np.mat([[0, -slat, clat], [1, 0, 0], [0, clat, slat]])
+    f = np.array([1.0])
+    beam = aipy.phs.Beam(f)
+    ants = []
+    for i in range(16):
+        enu = Vector([ante[i], antn[i], antu[i]])
+        x, y, z = enu.rotate(latrot).get()
+        # Apply (add) any baseline corrections
+        xp, yp, zp = bl_cor(x, y, z, i)
+        ants.append(aipy.phs.Antenna(xp, yp, zp, beam))
+
+    aa = aipy.phs.AntennaArray(ants=ants, location=(lat, lng, elev))
+    aa.horizon = '10:30:00'
+    aa.compute_pressure()
+    # Create some standard sources for the source catalog
+    srcs = []
+    srcs.append(aipy.amp.RadioSpecial('Sun'))
+    srcs.append(aipy.amp.RadioSpecial('Moon'))
+    cat = aipy.amp.SrcCatalog(srcs)
+    cat.compute(aa)
+    # Attach catalog to aa object
+    aa.cat = cat
+    return aa
+
+
+def bl_cor0(x, y, z, iant):
+    '''
+    This function is used to apply the baseline corrections for EOVSA-13 project.
+    This code is replaced by bl_cor() for the EOVSA-15 project.
+    '''
+
+    # Initial baseline corrections (based on Satellite obs. on 2016 Mar 20)
+    dx = np.array([0.00, 0.08, 0.30, 0.67, 0.35, -0.13, -0.09, 0.94, -6.37, 6.51, 1.15, -12.50, 13.31, 0.0, 0.0, 0.0])
+    dy = np.array(
+        [0.00, -0.45, 0.17, -0.39, 0.18, -0.79, -0.64, 1.47, -23.56, 21.54, -2.50, -38.75, 65.38, 0.0, 0.0, 0.0])
+    dz = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.0, 0.0, 0.0])
+    # Update based on Satellite obs. on 2016 Mar 29 (adds Ant14)
+    dx += np.array(
+        [0.00, 0.61, -0.22, 0.14, -0.06, -0.19, 0.28, -0.19, 2.38, -1.84, -0.91, 4.58, -7.61, -2.44, 0.0, 0.0])
+    dy += np.array([0.00, 0.22, 0.29, 0.44, 0.00, 0.38, 0.17, -0.29, 1.72, -2.97, 1.64, 5.10, -8.89, 3.56, 0.0, 0.0])
+    # Update based on 3C84 obs. on 2016 May 22 -- these are in m, hence the divieion by mperns
+    #                   A1     2     3     4     5     6      7     8      9     10    11     12    13    14
+    dx += np.array(
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -4.13, -3.13, 0.0, -3.75, -10.01, 0.0, 0.0]) / mperns
+    dy += np.array(
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -2.01, -2.01, 0.0, -3.94, -4.88, 0.0, 0.0]) / mperns
+    # Update based on 3C273 obs. on 2016 May 27 -- these are in ns
+    dx += np.array(
+        [0.00, -1.20, 0.66, -0.19, 0.86, 1.33, 0.37, -0.42, 2.41, 0.36, -3.19, 25.91, -1.44, -0.69, 0.0, 0.0])
+    dy += np.array([0.00, 0.19, -0.13, 0.05, 0.15, 0.39, 0.68, -0.90, 2.29, 0.22, -0.25, 14.35, 0.00, 0.15, 0.0, 0.0])
+    # Update based on 3C273 and 3C286 obs. on 2016 May 28 -- again in ns
+    dz += np.array(
+        [0.00, -0.01, 0.98, -0.15, -2.19, -0.10, 0.05, 0.05, 19.08, 11.80, 7.80, -15.20, 8.75, 6.80, 0.0, 0.0])
+    # Update based on multiple sources on 2016 Nov 17, after axis-offset correction (ants 5-8 not in service)
+    # Further update 2016 Nov 18
+    #                   A1     2      3      4      5      6     7    8     9      10    11     12     13     14
+    dx += np.array(
+        [0.00, 0.018, 0.018, -0.035, -0.054, 0.0, 0.0, 0.0, 0.624, 0.388, 0.272, -0.132, 0.582, 0.353, 0.0, 0.0])
+    dy += np.array(
+        [0.00, -0.018, 0.015, 0.036, 0.017, 0.0, 0.0, 0.0, -0.111, -0.035, -0.025, -0.097, -0.106, -0.035, 0.0, 0.0])
+    # Update based on 3C273 and 3C286 obs. on 2016 Nov 20 -- again in ns (ants 5-8 not in service)
+    dz += np.array(
+        [0.00, -0.171, -0.258, 0.114, -0.403, 0.0, 0.0, 0.0, 1.323, 0.363, 31.90, 1.463, 0.798, 0.637, 0.0, 0.0])
+    # Update based on 2136+006 and 2253+161 obs. on 2016 Nov 23, in ns (ants 5-8 not in service).
+    dz += np.array(
+        [0.00, 0.034, 0.065, -0.106, -0.002, 0.0, 0.0, 0.0, -0.211, 0.101, -3.702, -1.730, -0.206, -0.168, 0.0, 0.0])
+    # Update based on 2136+006 and 2253+161 obs. on 2016 Nov 25, in ns (ants 5-8 not in service).
+    dz += np.array(
+        [0.00, 0.000, -0.085, 0.000, -0.061, 0.0, 0.0, 0.0, 0.680, -0.039, 7.696, -0.186, 0.607, 0.645, 0.0, 0.0])
+    # Update based on obs. on 2016 Dec 22, in ns (ants 7-8 not in service).
+    dz += np.array(
+        [0.00, -0.090, 0.010, 0.093, 0.010, 0.190, 0.0, 0.0, -0.394, -0.210, -0.437, -0.193, -0.357, -0.444, 0.0, 0.0])
+    # Update based on obs. on 2017 Jan 06, in ns (ant 7 not in service).  Ant 13 not a good fit.
+    dx += np.array(
+        [0.00, 0.017, 0.003, -0.037, -0.027, 0.050, 0.0, 0.160, -0.027, -0.057, -0.060, -0.010, -0.130, -0.027, 0.0,
+         0.0])
+    dy += np.array(
+        [0.00, 0.00, -0.007, 0.00, 0.00, -0.003, 0.0, -0.057, 0.020, 0.023, 0.027, 0.010, -0.010, 0.017, 0.0, 0.0])
+    # Update based on obs. on 2017 Mar 23, in ns (ant 12 not in service).  This mainly updates for previous clock error.  Ant 4 is a guess.
+    # Doh!  Errors were given in m, so need to divide by mperns to convert to ns.
+    dx += np.array(
+        [0.00, -0.007, 0.000, -0.002, -0.001, -0.018, -0.011, -0.024, -0.025, -0.006, -0.080, 0.0, -0.121, -0.102, 0.0,
+         0.0]) / mperns
+    dy += np.array(
+        [0.00, -0.002, 0.001, 0.000, 0.004, -0.004, -0.012, 0.001, -0.022, 0.014, -0.015, 0.0, 0.050, -0.018, 0.0,
+         0.0]) / mperns
+    # Additional update to Ant 13
+    dx[12] += 0.033 / mperns
+    dy[12] += 0.019 / mperns
+    dz += np.array(
+        [0.00, 0.010, 0.002, 0.001, 0.002, -0.005, -0.048, -0.143, 0.003, 0.000, 0.005, 0.0, -0.025, 0.007, 0.0,
+         0.0]) / mperns
+    # Very precise corrections based on 2017 Apr. 16 observations [Ant 12 not working]:
+    dx += np.array(
+        [0.00, 0.024, -0.015, 0.014, 0.010, 0.024, 0.012, 0.029, -0.020, -0.008, 0.012, 0.0, 0.020, 0.020, 0.0, 0.0])
+    dy += np.array(
+        [0.00, 0.014, -0.003, 0.000, 0.000, 0.006, 0.009, 0.016, 0.005, -0.002, 0.003, 0.0, 0.010, 0.002, 0.0, 0.0])
+    dz += np.array(
+        [0.00, -0.003, -0.017, -0.013, 0.004, -0.010, -0.011, -0.015, -0.010, -0.013, -0.018, 0.0, 0.035, -0.018, 0.0,
+         0.0])
+    # New corrections mainly for Ant 12 and Ant 13, based on 2017 Jul 03 observations
+    dx += np.array(
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.045, 0.007, 0.003, 0.0, 0.0]) / mperns
+    dy += np.array(
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, -0.031, -0.003, 0.000, 0.0, 0.0]) / mperns
+    dz += np.array(
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.006, 0.00, 0.00, 0.006, 0.000, -0.003, 0.000, 0.0, 0.0]) / mperns
+    # Corrections are subtracted from nominal positions.
+    xp = x - dx[iant]
+    yp = y - dy[iant]
+    zp = z - dz[iant]
+    return xp, yp, zp
