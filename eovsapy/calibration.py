@@ -132,6 +132,27 @@
 #    I discovered a bug in skycal_anal() where the times of SQL levels and data 
 #    power levels could be mismatched.  Now finds the common value indexes first.
 #    Argh.  Use of median() instead of nanmedian() got me again.
+#  2022-Jun-28  DG
+#    Found that offsets2ants() sometimes read zeros from SQL.  It now bails
+#    with a message to try a different timestamp.
+#  2023-02-17  DG
+#    Changes to skycal_anal() to support new calibration type (13) in cal_header.py.
+#    This just adds the timestamp and frequency list to the dictionary.
+#  2023-03-13  DG
+#    Added azeloff parameter to allow SOLPNTANAL to work with Azimuth/Elevation offset data.
+#  2023-04-02  DG
+#    Fixed a couple of places where the above change was not fully accounted for.
+#  2023-11-13  DG
+#    Major change for newer data (after 2023-10-20) to use an entirely new solpnt
+#    scheme for the new feeds.
+#  2024-05-01  DG
+#    Change behavior of __main__ call, now analyzes latest SOLPNT when called without
+#    arguments, or exact time when a time is given on the command line.  Expected to be
+#    run on Pipeline.
+#  2024-05-04  DG
+#    Updates to calpnt_multi() to work over a day boundary and to deal with data gaps.
+#  2024-09-03  DG
+#    Update to NOT write a total power calibration if too many bad measurements.
 #
 
 if __name__ == "__main__":
@@ -148,7 +169,7 @@ import struct, time, glob, sys, socket, os
 from .disk_conv import *
 from . import dump_tsys
 
-def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, outfile=None):
+def calpnt_multi(trange, fdir=None, ant_str='ant1-15', calpnt2m=False, do_plot=True, outfile=None):
     ''' Runs calpntanal() for all scans within the given time range.
     
         trange   Time object with start and end time over which scans
@@ -267,7 +288,7 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
                 f.close()
     return out
     
-def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
+def calpntanal(t, fdir=None, ant_str='ant1-15', calpnt2m=False, do_plot=True, ax=None):
     ''' Does a complete analysis of CALPNTCAL, reading information from the SQL
         database, finding the corresponding Miriad IDB data, and doing the 
         gaussian fit to the beam, to return the beam and offset parameters.
@@ -329,7 +350,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     outo = read_idb.read_idb(filelist, navg=30)
     # Perform feed rotation correction
     out = read_idb.unrot(outo)
-    # Determine wanted baselines with ant 14 from ant_str
+    # Determine wanted baselines with ant A from ant_str
     idx = ant_str2list(ant_str)
     ##idx1 = idx[idx>7]  # Ants > 8
     ##idx2 = idx[idx<8]  # Ants <= 8
@@ -343,27 +364,38 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     if pltfac == 1.:
         # Case of 27m antenna pointing
         # Do appropriate sums over frequency, polarization and baseline
-        ##--This line replaces all of the lines marked with ##
-        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2,:,:48],1),1)),0)
-        ##if abschi >= 0 and abschi < np.pi/6:
-        ##    pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)  # Use only XX
-        ##elif abschi >= np.pi/6 and abschi < np.pi/3:
-        ##    pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
-        ##    pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2)),0)  # Use sum of XX and XY for ants <= 8
-        ##    pntdata = pntdata1 + np.sum(pntdata2[np.array([0,2])],0)
-        ##else:
-        ##    pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
-        ##    pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1)),0)  # Use sum of XY for ants <= 8
-        ##    pntdata = pntdata1 + pntdata2
+        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,15],:2,:,:48],1),1)),0)
         # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
         # sum over these
-        pntdata.shape = (16,3)
-        stdev = np.std(pntdata,1)
-        pntdata = np.sum(pntdata,1)
+        tarray = np.zeros(50)
+        pntarray = np.zeros(50)
+        k = 0
+        tarray[0] = out['time'][0]
+        pntarray[0] = pntdata[0]
+        # Fill in time gaps with nans
+        for i in range(1,len(out['time'])):
+            dt = out['time'][i] - tarray[k]
+            while dt > 32./86400:   # Should be 30, but add 2 s to give room for a little slop
+                # This is a time gap
+                k += 1
+                tarray[k] = tarray[k-1]+30./86400.   # Add 30 s to "current" time
+                pntarray[k] = np.nan                 # Insert NaN
+                dt = out['time'][i] - tarray[k]
+            k += 1
+            tarray[k] = out['time'][i]
+            pntarray[k] = pntdata[i]
+        pntarray = pntarray[:48]
+        pntarray.shape = (16,3)
+        stdev = np.nanstd(pntarray,1)
+        pntdata = np.nansum(pntarray,1)
         radat = pntdata[:8]
         decdat = pntdata[8:]
-        plsqr, xr, yr = solpnt.gausfit(rao, radat)
-        plsqd, xd, yd = solpnt.gausfit(deco, decdat)
+        #               peak flux      offset   beamwidth  background
+        low_bounds =  [      1.,        -0.2,     0.05,        0.]
+        high_bounds = [1.5*max(np.max(pntdata),1), 0.2,     0.15,        1.]
+        bounds = (low_bounds,high_bounds)
+        plsqr, xr, yr = solpnt.gausfit(rao, radat, bounds=bounds)
+        plsqd, xd, yd = solpnt.gausfit(deco, decdat, bounds=bounds)
         midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
         if (do_plot):
             if ax is None:
@@ -393,12 +425,12 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
                 ax[1].set_title(midtime.iso[:16])
             plt.pause(0.5)
         return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
-                   'rao':plsqr[1],'deco':plsqd[1],'time':midtime,'antidx':13}
+                   'rao':plsqr[1],'deco':plsqd[1],'time':midtime,'antidx':15}
     else:
         # Case of 2m antenna pointing
         # Do appropriate sum over frequency and polarization but not baseline
         ##--This line replaces all of the lines marked with ##
-        pntdata = np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2,:,:48],1),1)) # Combines XX and YY
+        pntdata = np.abs(np.sum(np.sum(out['x'][bl2ord[idx,15],:2,:,:48],1),1)) # Combines XX and YY
         ##if abschi >= 0 and abschi < np.pi/6:
         ##    pntdata = np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1))  # Use only XX
         ##elif abschi >= np.pi/6 and abschi < np.pi/3:
@@ -465,7 +497,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
                    'rao':rao_fit,'deco':deco_fit,'time':midtime,'antidx':idx}
     
     
-def solpntanal(t, udb=False, auto=False, find=True, desat=False):
+def solpntanal(t, udb=False, auto=False, find=True, desat=False, azeloff=False):
     ''' Does a complete analysis of SOLPNTCAL, reading information from the SQL
         database, finding and dumping the corresponding Miriad IDB data, and 
         doing gaussian fit to beam to return the beam parameters.  The outputs
@@ -481,7 +513,7 @@ def solpntanal(t, udb=False, auto=False, find=True, desat=False):
         fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
         return Time(fstr).mjd
 
-    pnt = solpnt.get_solpnt(t, find=find)
+    pnt = solpnt.get_solpnt(t, find=find, azeloff=azeloff)
     proc = solpnt.process_solpnt(pnt)
     trange = Time([pnt['Timestamp'],pnt['Timestamp']+300.],format='lv')
     skycal = {}
@@ -499,6 +531,12 @@ def solpntanal(t, udb=False, auto=False, find=True, desat=False):
         skycal = skycal_anal(trange[0], do_plot=False, last=True, desat=desat)
         otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=skycal, desat=desat)
     if skycal != {}:
+        # Check if skycal record exists in SQL database, and write it if not
+        xml, buf = ch.read_cal(13, trange[0])
+        sqlmjd = Time(extract(buf, xml['Timestamp']), format='lv').mjd  # Date of existing skycal record
+        if int(sqlmjd) != int(trange[0].mjd):
+            # Day numbers of existing and new records do not agree, so write a new record
+            ch.skycal2sql(skycal)
         newskycal = deepcopy(skycal)
         if auto:
             # Modify the skycal to put the auto information into the standard location
@@ -517,7 +555,7 @@ def solpntanal(t, udb=False, auto=False, find=True, desat=False):
     qual = sp_check_qual(x,y)
     return x,y, qual
         
-def skycal_anal(t=None, do_plot=False, last=False, desat=False):
+def skycal_anal(t=None, do_plot=False, last=False, desat=False, file=''):
     ''' Reads the daily SKYCALTEST data and returns the far "off Sun" background for use with
         total power calibration.  The SKYCALTEST observation can double as a GAINCAL if needed,
         but this has not yet been implemented.
@@ -565,14 +603,31 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False):
             return outdict
         timestamp = int(Time(outdict[0]['time'],format='jd').lv)
         return {'timestamp':timestamp, 'fghz':outdict[0]['fghz'], 'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
-    mjd = t.mjd // 1
-    trange = Time([mjd+0.5,mjd+1.25],format='mjd')
-    proj = dump_tsys.findfile(trange,'SKYCALTEST')
-    if proj:
-        out = ri.read_idb(proj['scanlist'][0])
+    fdb = dump_tsys.rd_fdb(t)
+    gcidxes, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
+    host = socket.gethostname()
+    if len(gcidxes) != 0:
+        if last:
+            gcidx = gcidxes[-1]
+        else:
+            gcidx = gcidxes[0]
+
+        datadir = get_idbdir(t)
+        # Add date path if on pipeline
+        # if datadir.find('eovsa') != -1:
+        #     datadir += fdb['FILE'][gcidx][3:11]+'/'
+        if host == 'pipeline': datadir += fdb['FILE'][gcidx][3:11]+'/'
+
+        if file == '':
+            file = datadir+fdb['FILE'][gcidx]
+        
+        out = ri.read_idb([file], desat=desat)
         skytrange = Time(out['time'][[0,-1]],format='jd')
         nant, npol, nf, nt = out['p'].shape
-        if nant > 13: nant = 13
+        if t > Time('2025-05-22'):
+            if nant > 15: nant = 15
+        else:
+            if nant > 13: nant = 13
         offsun = np.zeros((nant,npol,nf), dtype=float)
         rcvr = np.zeros((nant,npol,nf), dtype=float)
         offsun_auto = np.zeros((nant,npol,nf), dtype=complex)
@@ -1137,11 +1192,12 @@ def solpnt2sql(t,tsql=None,prompt=True, desat=False):
     else:
         print('Result was NOT written to the SQL database')
 
-def check_qual(x, qual):
+def check_qual(x, qual, nant=None):
     status = np.zeros(qual.shape,'S4')
     status[np.where(qual)] = 'Good'
     status[np.where(qual==False)] = '*Bad'
-    nparms,nf,nant = x['raparms'].shape
+    if nant is None:
+        nparms,nf,nant = x['raparms'].shape
     t = Time(x['ut_mjd'][0],format='mjd')
     print(t.iso[:19],': Quality of TP Calibration')
     print('    Ant      X-Feed        Y-Feed')
@@ -1220,34 +1276,38 @@ if __name__ == "__main__":
     #elif type(times[0]) is np.ndarray:
     #    # Annoyingly necessary when only one time in tstamps
     #    times = times[0]
-    igt5 = np.where((timestamp - times) > 300)[0]
-    if (Time.now().mjd - t.mjd) < 1:
-        # This has a chance of being a "real-time" calibration, so make some further checks
-        if len(igt5) == 0:
-            # SOLPNTCAL scan in progress
-            print(t.iso[:19]+': SOLPNTCAL scan still in progress')
-            exit()
-        if (timestamp - times[igt5[-1]]) > 600:
-            # Latest SOLPNTCAL scan is too old, so nothing to do
-            print(t.iso[:19]+': Last SOLPNTCAL scan too old. Age:',int(timestamp - times[igt5[-1]])/60,'minutes')
-            exit()
-        # Looks like this is the right "age" and ready to be analyzed
-        # Wait 30 s to ensure scan is done.
-        time.sleep(30)
+    if t.mjd > Time('2024-05-01').mjd:
+        # New behavior after 2024-05-01
+        if not tgiven: 
+            t = Time(times[-1],format='lv')  # Just analyze the latest scan for the selected day
+            
+    else:    
+        igt5 = np.where((timestamp - times) > 300)[0]
+        if (Time.now().mjd - t.mjd) < 1:
+            # This has a chance of being a "real-time" calibration, so make some further checks
+            if len(igt5) == 0:
+                # SOLPNTCAL scan in progress
+                print(t.iso[:19]+': SOLPNTCAL scan still in progress')
+                exit()
+            if (timestamp - times[igt5[-1]]) > 600:
+                # Latest SOLPNTCAL scan is too old, so nothing to do
+                print(t.iso[:19]+': Last SOLPNTCAL scan too old. Age:',int(timestamp - times[igt5[-1]])/60,'minutes')
+                exit()
+            # Looks like this is the right "age" and ready to be analyzed
+            # Wait 30 s to ensure scan is done.
+            time.sleep(30)
     t = Time(times[igt5[-1]],format='lv')
  #   if socket.gethostname() == 'pipeline':
  #       x, y, qual = solpntanal(t,udb=True)
  #   elif socket.gethostname() == 'dpp':
-    x, y, qual = solpntanal(t,udb=False)  # NB: the desat keyword is irrelevant because udb=False
-    xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
- #   else:
- #       print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
- #       exit()
-    percent_good = check_qual(x, qual)
-    if percent_good > 50:
+    if t.mjd < Time('2023-10-20').mjd:
+        x, y, qual = solpntanal(t,udb=False)  # NB: the desat keyword is irrelevant because udb=False
+        xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
+        percent_good = check_qual(x, qual)
+        if percent_good > 50:
 #        if socket.gethostname() == 'dpp':
 #            # If this is the DPP, write the results to the SQL database automatically.
-        solpnt2sql(t,prompt=False, desat=True)
+            solpnt2sql(t,prompt=False, desat=True)
 #        else:
 #            # This is the old way of writing results to a disk file--should be removed...
 #            calfac, offsun = sp_get_calfac(x,y)
@@ -1259,6 +1319,30 @@ if __name__ == "__main__":
 #               x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
 #               sp_write_calfac(x,y,calfac,offsun)
 #               print "Also wrote tomorrow's file"
+        else:
+            print('Calibration file not written--too many bad values.')
     else:
-        print('Calibration file not written--too many bad values.')
+        # Date is after 2023 Oct 10, so use new VERY different calibration scheme
+        import .solpnt_x as sx
+        tsolpnt = t
+        solout = sx.solpnt_xanal(tsolpnt)
+        qual = sx.sp_check_qual(solout)
+        offsets = sx.solpnt_offsets(solout,savefig=True)  # Creates the pointing plot
+        print(t.iso[:19],': Quality of TP Calibration')
+        print('Ant  X-Feed  Y-Feed')
+        print('---  ------  ------')
+        ngood = 0.
+        nant = 7  # 2025-04-28  Only 7 antennas working
+        for ant in range(nant):
+            if qual[0,ant]:
+                ngood += 1
+            if qual[1,ant]:
+                ngood += 1
+            print('{:3d} '.format(ant+1), '  Good  ' if qual[0,ant] else '  *Bad  ', '  Good  ' if qual[1,ant] else '  *Bad  ')
+        percent_good = ngood*100./(2.*nant)
+        if percent_good > 50:
+            tpcal_dict = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
+            print('New-feed calibration written.')
+        else:
+            print('Calibration file not written--too many bad values.')
     exit()  

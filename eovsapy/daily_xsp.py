@@ -40,6 +40,8 @@
 #    is that ACQUIRE states are not displayed (they are in SQL but not fdb files).
 #  2022-03-10  DG
 #    A couple of other changes due to loss of SQL, marked with comments.
+#  2025-05-20  DG
+#    Updated cal_qual() to work with 16 antennas.
 #
 
 if __name__ == "__main__":
@@ -373,15 +375,19 @@ def cal_qual(t=None, savfig=True):
     nt = len(out['time'])
     nf = len(out['fghz'])
     tpfac = 500./nf
+    if t > Time('2025-05-22'):
+        nant = 16
+    else:
+        nant = 14
 
     frq, flux = rstn.rd_rstnflux(t)
     s = rstn.rstn2ant(frq, flux, out['fghz']*1000., t)
     fluximg = s.repeat(nt).reshape(nf,nt)
-    f, ax = plt.subplots(4,7)
-    f.set_size_inches(16,7,forward=True)
+    f, ax = plt.subplots(4,nant//2)
+    f.set_size_inches(nant+2,7,forward=True)
     f.tight_layout(rect=[0.0,0.0,1,0.95])
-    ax.shape = (2, 14)
-    for i in range(13):
+    ax.shape = (2, nant)
+    for i in range(nant-1):
         for j in range(2):
             ax[j,i].imshow(out['p'][i,j],aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
             ax[j,i].plot(np.clip(out['p'][i,j,int(nf/3.)]/tpfac,0,nf),linewidth=1)
@@ -405,20 +411,20 @@ def cal_qual(t=None, savfig=True):
             print('The .png file could not be created in the /common/webplots/flaremon/daily/ folder.')
             print('A copy was created in /tmp/.')
 
-    f, ax = plt.subplots(4,7)
-    f.set_size_inches(16,7,forward=True)
+    f, ax = plt.subplots(4,nant//2)
+    f.set_size_inches(nant+2,7,forward=True)
     f.tight_layout(rect=[0.0,0.0,1,0.95])
-    ax.shape = (2, 14)
-    for i in range(13):
+    ax.shape = (2, nant)
+    for i in range(nant-1):
         for j in range(2):
             ax[j,i].imshow(np.real(out['a'][i,j]),aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
             ax[j,i].plot(np.clip(np.real(out['a'][i,j,int(nf/3.)]/tpfac),0,nf),linewidth=1)
             ax[j,i].plot(np.clip(np.real(out['a'][i,j,int(2*nf/3.)]/tpfac),0,nf),linewidth=1)
             ax[j,i].set_title('Ant '+str(i+1)+[' X Pol',' Y Pol'][j],fontsize=10)
     for j in range(2): 
-        ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
-        ax[j,13].set_title('RSTN Flux',fontsize=10)
-    for i in range(13):
+        ax[j,nant-1].imshow(fluximg,aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
+        ax[j,nant-1].set_title('RSTN Flux',fontsize=10)
+    for i in range(nant-1):
         for j in range(2):
             ax[j,i].plot(np.clip(fluximg[int(nf/3.)]/tpfac,0,nf),'--',linewidth=1,color='C0')
             ax[j,i].plot(np.clip(fluximg[int(2*nf/3.)]/tpfac,0,nf),'--',linewidth=1,color='C1')

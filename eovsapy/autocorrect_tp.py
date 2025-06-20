@@ -17,6 +17,8 @@
 #  2021-09-25  DG
 #    Change minimum length for background subtraction (tp_bgnd, etc.) to 1200
 #    and allow it to shrink further if some data are missing.
+#  2025-05-18  DG
+#    Updated for 16 antennas
 #
 
 from . import pipeline_cal as pc
@@ -28,16 +30,20 @@ import matplotlib.pylab as plt
 from matplotlib.dates import DateFormatter
 
 
-def autocorrect(out, ant_str='ant1-13', brange=[0, 300]):
+def autocorrect(out, ant_str='ant1-15', brange=[0, 300]):
     nt = len(out['time'])
     nf = len(out['fghz'])
     pfac1 = (out['p'][:, :, :, :-1] - out['p'][:, :, :, 1:]) / out['p'][:, :, :, :-1]
     trange = Time(out['time'][[0, -1]], format='jd')
+    if trange[0] > Time('2025-05-22'):
+        nsolant = 15
+    else:
+        nsolant = 13
     src_lev = gc.get_fem_level(trange)  # Read FEM levels from SQL
     # Match times with data
     tidx = nearest_val_idx(out['time'], src_lev['times'].jd)
     # Find attenuation changes
-    for ant in range(13):
+    for ant in range(nsolant):
         for pol in range(2):
             if pol == 0:
                 lev = src_lev['hlev'][ant, tidx]
@@ -57,15 +63,15 @@ def autocorrect(out, ant_str='ant1-13', brange=[0, 300]):
     hlev = src_lev['hlev'][:13, 0]
     vlev = src_lev['vlev'][:13, 0]
     attn_dict = ac.read_attncal(trange[0])[0]  # Read GCAL attn from SQL
-    attn = np.zeros((13, 2, nf))
-    for i in range(13):
+    attn = np.zeros((nsolant, 2, nf))
+    for i in range(nsolant):
         attn[i, 0] = attn_dict['attn'][hlev[i], 0, 0]
         attn[i, 1] = attn_dict['attn'][vlev[i], 0, 1]
         print('Ant', i + 1, attn[i, 0, 20], attn[i, 1, 20])
     attnfac = 10 ** (attn / 10.)
-    for i in range(13): print(attnfac[i, 0, 20], attnfac[i, 1, 20])
+    for i in range(nsolant): print(attnfac[i, 0, 20], attnfac[i, 1, 20])
     for i in range(nt):
-        out['p'][:13, :, :, i] = (out['p'][:13, :, :, i] * attnfac - tpoffsun) * tpcalfac
+        out['p'][:nsolant, :, :, i] = (out['p'][:nsolant, :, :, i] * attnfac - tpoffsun) * tpcalfac
     antlist = ant_str2list(ant_str)
     bg = np.zeros_like(out['p'])
     # Subtract background for each antenna/polarization
@@ -298,7 +304,10 @@ def tp_bgnd_all(tpdata):
     except:
         outtime = tpdata['ut_mjd']
         trange = Time(outtime[[0, -1]], format='mjd')
-
+    if trange[0] > Time('2025-05-22'):
+        nsolant = 15
+    else:
+        nsolant = 13
     nt = len(outtime)
     if nt < 1200:
         print('TP_BGND: Error, timebase too small.  Must have at least 1200 time samples.')
@@ -324,8 +333,8 @@ def tp_bgnd_all(tpdata):
     #    sint -= np.mean(sint)     # Remove offset, to provide zero-mean fluctuation
     sdev = np.std(sint)
     sint_ok = np.abs(sint) < 2 * sdev
-    bgnd = np.zeros((13, 2, nf, nt), float)
-    for ant in range(13):
+    bgnd = np.zeros((nsolant, 2, nf, nt), float)
+    for ant in range(nsolant):
         for pol in range(2):
             for i in range(nf):
                 # Subtract smooth trend from data

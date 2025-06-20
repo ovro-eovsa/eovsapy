@@ -34,6 +34,8 @@
 #    there was more than one GAINCALTEST on the specific date.  Now it
 #    prompts the user to enter a choice.  Not ideal, but this is a rare
 #    occurrence.
+#  2025-06-10  DG
+#    Changes to work with 16 antennas
 #
 from .util import Time, extract
 import numpy as np
@@ -54,9 +56,9 @@ def get_attncal(trange, do_plot=False, dataonly=False):
            'time':      The start time of the GAINCALTEST scan, as a Time() object
            'fghz':      The list of frequencies [GHz] at which attenuations are measured
            'attn':      The array of attenuations [dB] of size (nattn, nant, npol, nf), 
-                           where nattn = 8, nant = 13, npol = 2, and nf is variable
+                           where nattn = 8, nant = nsolant, npol = 2, and nf is variable
            'rcvr':      The array of receiver noise level (raw units) of size 
-                           (nant, npol, nf), where nant = 13, npol = 2, and nf is variable
+                           (nant, npol, nf), where nant = nsolant, npol = 2, and nf is variable
            'rcvr_auto': Same as rcvr, but for auto-correlation (hence it is complex)
                            
         N.B.: Ignores days with other than one GAINCALTEST measurement, e.g. 0 or 2,
@@ -65,6 +67,8 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         
         The dataonly parameter tells the routine to skip calculating the attenuation
         and only return the IDB data from the (first) gaincal.
+        
+        Updated to work for either nsolant = 13 or 15 solar antennas
     '''
     from .util import get_idbdir, fname2mjd, nearest_val_idx
     import socket
@@ -75,15 +79,20 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         mjd2 = mjd1
     else: 
         mjd1, mjd2 = trange.mjd.astype(int)
+    # Determine number of solar antennas based on the date
+    if mjd1 < Time('2025-05-22').mjd:
+        nsolant = 13
+    else:
+        nsolant = 15
     if do_plot:
         import matplotlib.pylab as plt
-        f, ax = plt.subplots(4,13)
-        f.set_size_inches((14,5))
+        f, ax = plt.subplots(4,nsolant)
+        f.set_size_inches((nsolant+1,5))
         ax[0,0].set_ylabel('Atn1X [dB]')
         ax[1,0].set_ylabel('Atn1Y [dB]')
         ax[2,0].set_ylabel('Atn2X [dB]')
         ax[3,0].set_ylabel('Atn2Y [dB]')
-        for i in range(13):
+        for i in range(nsolant):
             ax[0,i].set_title('Ant '+str(i+1))
             ax[3,i].set_xlabel('Freq [GHz]')
             for j in range(2):
@@ -126,12 +135,12 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         # These now have to be translated into indexes into the data, using the times
         idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
         #import pdb; pdb.set_trace()
-        vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
-        va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
+        vx = np.nanmedian(out['p'][:nsolant,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
+        va = np.mean(out['a'][:nsolant,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
         vals = []
         attn = []
         for i in range(1,10):
-            vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
+            vals.append(np.nanmedian(out['p'][:nsolant,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
             attn.append(np.log10(vals[0]/vals[-1])*10.)
         #vals = []
         #attna = []
@@ -140,7 +149,7 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         #    attna.append(np.log10(vals[0]/vals[-1])*10.)
         
         if do_plot:
-            for i in range(13):
+            for i in range(nsolant):
                 for j in range(2):
                     ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
                     #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
@@ -165,6 +174,7 @@ def read_attncal(trange=None):
            'attn':      The array of attenuations [dB] of size (nattn, nant, npol, nf), 
                            where nattn = 8, nant = 13, npol = 2, and nf is variable
 
+        Returns attn for either nsolant = 13 or 15 solar antennas
     '''
     from . import cal_header as ch
     if trange is None:

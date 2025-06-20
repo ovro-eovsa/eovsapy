@@ -52,6 +52,8 @@
 #   2025-Jan-11  DG
 #      Made a few changes to deal with new SQL version 67, where the dimension 16
 #      table has the antenna information and the dimension 15 table is gone.
+#   2025-May-18  DG
+#      More changes to work with 16 antennas when Ant A is in slot 16.
      
 import mysql.connector
 from .util import Time
@@ -217,6 +219,8 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
         # In version 67, the old dimension 15 things are in table of dimension 16
         dimension = 16
         outdim = 15
+    if dimension == 16 and ts > Time('2025-05-22').lv:
+        outdim = 16
     nvals = dimension*nrecs
     table = 'fV'+str(version)+'_vD'+str(dimension)
     # Generate query
@@ -280,6 +284,9 @@ def a14_wscram(trange):
            times      as a Time() object, or error message if failure
            wscram     array of windscram state, 0 = not in wind scram, 1 = in windscram
            avgwind    array of average wind speeds, in MPH, or error message if failure
+
+        Note: Ant A is no longer ant 14, so this code uses the date to determine
+        the correct column to read.
     '''
     tstart,tend = [str(i) for i in trange.lv]
     cnxn, cursor = get_cursor()
@@ -290,7 +297,11 @@ def a14_wscram(trange):
     else:
         tdim = 15
         idx = 'I15'
-    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD'+str(tdim)+' where (I'+idx+' = 13) and Timestamp between '+tstart+' and '+tend
+    if trange[0] > Time('2025-05-22'):
+        col = 15
+    else:
+        col = 13
+    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD'+str(tdim)+' where (I'+idx+' = '+str(col)+') and Timestamp between '+tstart+' and '+tend
     data, msg = do_query(cursor, query)
     if msg == 'Success':
         try:
@@ -329,6 +340,10 @@ def get_motor_currents(trange):
         given time range (returns times, azimuth motor current, and elevation motor current)
     '''
     tstart,tend = [str(i) for i in trange.lv]
+    if trange[0] < Time('2025-05-22'):
+        nant = 15
+    else:
+        nant = 16
     cnxn, cursor = get_cursor()
     ver = find_table_version(cursor,trange[0].lv)
     if int(ver) > 66:
@@ -339,13 +354,13 @@ def get_motor_currents(trange):
     data, msg = do_query(cursor, query)
     cnxn.close()
     if msg == 'Success':
-        times = Time(data['Timestamp'].astype('int'),format='lv')[::15]
+        times = Time(data['Timestamp'].astype('int'),format='lv')[::tdim]
         az = data['Ante_Cont_AzimuthMotorCurrent']
         el = data['Ante_Cont_ElevationMotorCurren']
-        nt = len(az)//15
-        az.shape = (nt,15)
-        el.shape = (nt,15)
-        return times,az,el
+        nt = len(az)//tdim
+        az.shape = (nt,tdim)
+        el.shape = (nt,tdim)
+        return times,az[:,:nant],el[:,:nant]
     else:
         print(msg)
         return None,None,None
@@ -616,7 +631,11 @@ def plot27mtemps(trange,fld=None,plottitle=None,ignore=None,interval=None,rng=No
         plt.title("27m Antenna Temperatures")
     
     if femfld!="":
-        data,msg=loadsfdata([femfld],trange,14,interval)
+        if trange[0] < Time('2025-05-22'):
+            anta = 14
+        else:
+            anta = 16
+        data,msg=loadsfdata([femfld],trange,anta,interval)
         dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
         if ignore!=None:
             data[femfld]=np.ma.masked_where(data[femfld]==ignore,data[femfld])
