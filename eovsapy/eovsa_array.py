@@ -46,6 +46,10 @@
 #      Update of Bx, By and Bz, based on 2017-Jul-03 measurements, mainly to correct ants 12 
 #      and 13 Bx and By, but also minor tweaks elsewhere.  Note that Ant 12 Bz could not be
 #      measured reliably due to large Bx, By errors, so it needs another Bz tweak.
+#   2025-May-20  DG
+#      Updated for the two new antennas.  The baseline corrections are zeroed by adding them
+#      to the nominal antenna positions so we can start with a clean slate for EOVSA-15. The
+#      legacy code is retained by renaming to eovsa_array0() and bl_cor0()
 #
 
 import numpy as np

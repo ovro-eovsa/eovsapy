@@ -132,6 +132,10 @@
 #    Added an nmax parameter to read_idb() and readXdata() to override previous limitation
 #    of reading only 600 times from a file.  With the new 20-ms files there can be 30000
 #    records in a 10-min file!
+#  2024-03-29  DG
+#    Change unrot() to agree with the one in pipeline_cal.py.
+#  2025-05-22  DG
+#    Changed to work for 16 antennas.
 #
 
 import aipy
@@ -626,7 +630,7 @@ def readXdatmp(filename):
     out = {'a':outa, 'x':outx, 'uvw':np.array(uvwarray), 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
     return out
     
-def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
+def summary_plot(out,ant_str='ant1-15',ptype='phase',pol='XX-YY'):
     ''' Makes a summary amplitude or phase plot for all baselines from ants in ant_str
         in out dictionary.
     '''
@@ -660,7 +664,7 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
         ai = ant_list[i]
         ax[i,i].text(0.5,0.5,str(ai+1),ha='center',va='center',transform=ax[i,i].transAxes,fontsize=14)
 
-def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
+def summary_plot_pcal(out,ant_str='ant1-16',ptype='phase',pol='XX-YY'):
     ''' Makes a summary amplitude or phase plot for all baselines from ants in ant_str
         in out dictionary.
     '''
@@ -1045,7 +1049,12 @@ def unrot(data, azeldict=None):
         azeldict = get_sql_info(trange)
     chi = azeldict['ParallacticAngle'] * np.pi / 180.  # (nt, nant)
     # Correct parallactic angle for equatorial mounts, relative to Ant14
-    chi[:, [8, 9, 10, 12, 13]] = 0  # Currently 0, but can be measured and updated
+    if trange[0] < Time('2025-05-22'):
+        chi[:, [8, 9, 10, 12, 13]] = 0  # Currently 0, but can be measured and updated
+        nant = 15
+    else:
+        chi[:, 15] = 0   # Only Ant A is equatorial after 2025-05-22
+        nant = 16
 
     # Which antennas are tracking
     track = azeldict['TrackFlag']  # True if tracking
@@ -1053,8 +1062,9 @@ def unrot(data, azeldict=None):
     # Ensure that nearest valid parallactic angle is used for times in the data
     good = np.where(azeldict['ActualAzimuth'] != 0)
     tidx = []  # List of arrays of indexes for each antenna
-    for i in range(14):
-        gd = good[0][np.where(good[1] == i)]
+    gd = []
+    for i in range(nant):
+        gd.append(good[0][np.where(good[1] == i)])
         tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd].jd))
 
     # Read X-Y Delay phase from SQL database and get common frequencies
@@ -1072,8 +1082,8 @@ def unrot(data, azeldict=None):
     nbl, npol, nf, nt = data['x'].shape
     nf = len(fidx1)
     # Correct data for X-Y delay phase
-    for i in range(13):
-        for j in range(i + 1, 14):
+    for i in range(nant-1):
+        for j in range(i + 1, nant):
             k = bl2ord[i, j]
             if j == 13:                  # xi_rot was applied for all antennas, but this
                 xi = xi_rot[fidx2]       # is wrong.  Now it is only done for ant14.
@@ -1089,21 +1099,26 @@ def unrot(data, azeldict=None):
     # Correct data for differential feed rotation
     cdata = copy.deepcopy(data)
     for n in range(nt):
-        for i in range(13):
-            for j in range(i + 1, 14):
+        for i in range(nant-1):
+            for j in range(i + 1, nant):
                 k = bl2ord[i, j]
                 ti = tidx[i][n]
                 tj = tidx[j][n]
-#                if track[ti, i] and track[tj, j]:
-                dchi = chi[ti, i] - chi[tj, j]
-                cchi = np.cos(dchi)
-                schi = np.sin(dchi)
-                cdata['x'][k, 0, :, n] = data['x'][k, 0, :, n] * cchi + data['x'][k, 3, :, n] * schi
-                cdata['x'][k, 2, :, n] = data['x'][k, 2, :, n] * cchi + data['x'][k, 1, :, n] * schi
-                cdata['x'][k, 3, :, n] = data['x'][k, 3, :, n] * cchi - data['x'][k, 0, :, n] * schi
-                cdata['x'][k, 1, :, n] = data['x'][k, 1, :, n] * cchi - data['x'][k, 2, :, n] * schi
-#                else:
-#                    cdata['x'][k, :, :, n] = np.nan
+                if track[ti, i] and track[tj, j]:
+                    # If something goes wrong with chi difference calculation, just default to chi = 0
+                    try:
+                        dchi = chi[gd[i][ti], i] - chi[gd[j][tj], j]
+#                        dchi = -chi[gd[i][ti], i] + chi[gd[j][tj], j]  # Try opposite sign of rotation *****
+                    except:
+                        dchi = 0.0
+                    cchi = np.cos(dchi)
+                    schi = np.sin(dchi)
+                    cdata['x'][k, 0, :, n] = data['x'][k, 0, :, n] * cchi + data['x'][k, 3, :, n] * schi
+                    cdata['x'][k, 2, :, n] = data['x'][k, 2, :, n] * cchi + data['x'][k, 1, :, n] * schi
+                    cdata['x'][k, 3, :, n] = data['x'][k, 3, :, n] * cchi - data['x'][k, 0, :, n] * schi
+                    cdata['x'][k, 1, :, n] = data['x'][k, 1, :, n] * cchi - data['x'][k, 2, :, n] * schi
+                else:
+                    cdata['x'][k, :, :, n] = np.nan
 
     # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
     # cdata['x'][missing] = np.ma.masked

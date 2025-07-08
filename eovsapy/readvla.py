@@ -51,7 +51,7 @@ def readvlacaldb():
             cal[k].uvmax = []
             if line[63:] != '':
                 cal[k].altname = line[63:]
-        elif line[0:1] is '=':
+        elif line[0:1] == '=':
             nextline = True
         elif nextline:
             if len(line) == 2:

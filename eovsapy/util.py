@@ -66,12 +66,24 @@
 #    or chan_util_52, depending on the date.
 #  2022-Apr-14  DG
 #    Added read_horizons() routine for getting the JPL Horizons solar ephemeris
+#  2022-Jun-23  DG
+#    Added suppression of spurious ERFA warnings involving absence of leap
+#    seconds for some (mainly future) dates.
+#  2025-May-22  DG
+#    Simple change to fix_time_drift() to work for change of Ant A from index 14
+#    to 16.
 # *
 
 from . import StringUtil as su
 import datetime as dt
 from time import gmtime
 import numpy as np
+#
+# Suppress spurious warnings from ERFA
+import warnings
+from astropy.time.formats import erfa
+from erfa.core import ErfaWarning
+warnings.simplefilter('ignore', category=ErfaWarning)
 
 class Angle:
     """General angle class, converts input to radians, but handles input
@@ -1389,13 +1401,20 @@ def fix_time_drift(out):
         with stdev < 0.7) to correct the phase on ALL frequencies and polarizations. 
         Other baselines than those with Ant 14 are returned unmodified.
         (Although they COULD be corrected -- TODO)
-    '''
-    nant, npol, nband, nt = out['x'][bl2ord[13, :13]].shape  # Consider baselines with Ant14 only
+
+        I doubt this routine is still used, but still--updated for Ant A being
+        moved from Ant 14 to Ant 16
+            '''
+    if out['time'][0] < Time('2025-05-22').jd:
+        nsolant = 13
+    else:
+        nsolant = 15
+    nant, npol, nband, nt = out['x'][bl2ord[nsolant, :nsolant]].shape  # Consider baselines with Ant14 only
     for iant in range(nant):
         for ipol in range(2):  # Use only polarizations XX and YY for slope determination
             slopes = []
             for iband in range(nband):
-                phz = np.angle(out['x'][bl2ord[13, iant], ipol, iband])
+                phz = np.angle(out['x'][bl2ord[nsolant, iant], ipol, iband])
                 # if out['flags'][iant,ipol,iband] == 0:
                 p = lin_phase_fit(out['time'], phz)
                 if p[2] < 0.7:
@@ -1406,7 +1425,7 @@ def fix_time_drift(out):
             for ipol in range(npol):  # Apply the corrections to all polarization products
                 for iband in range(nband):
                     pfit = dpdt * out['fghz'][iband] * (out['time'] - out['time'][nt // 2])
-                    out['x'][bl2ord[13, iant], ipol, iband] *= np.cos(pfit) - 1j * np.sin(pfit)
+                    out['x'][bl2ord[nsolant, iant], ipol, iband] *= np.cos(pfit) - 1j * np.sin(pfit)
     return out
 
 
@@ -1536,9 +1555,19 @@ def azel_from_sqldict(sqldict, antlist=None):
     '''
     import copy
     dtor = np.pi/180.
+    if sqldict['Timestamp'][0,0] < Time('2025-05-22').lv:
+        nsolant = 13
+        nant = 15
+        eqant = [8,9,10,12,13]   # Indexes of equatorial antennas
+        idx12 = np.array([11])   # Indexes of "new" antennas (ant 12 only)
+    else:
+        nsolant = 15
+        nant = 16
+        eqant = [15]      # Indexes of equatorial antennas (ant 16 only)
+        idx12 = np.array([8,9,10,11,12,13,14])    # Indexes of "new" antennas (ants 9-15)
     if antlist is None:
         # No antlist, so assume all antennas
-        antlist = list(range(15))
+        antlist = list(range(nant))
 
     az1 = copy.deepcopy(sqldict['Ante_Cont_Azimuth1'].astype('float'))/10000.
     az_corr = copy.deepcopy(sqldict['Ante_Cont_AzimuthPositionCorre'].astype('float'))/10000.
@@ -1566,7 +1595,7 @@ def azel_from_sqldict(sqldict, antlist=None):
     # Set antenna 12 to RunMode 1 for this next selection, since
     # new S. Pole telescope works differently
     rm.shape = rms
-    rm[:,11] = 1
+    rm[:,idx12] = 1
     rm.shape = np.prod(rms)
     good = np.where(rm == 1)[0]
     if len(good) != 0:
@@ -1579,19 +1608,19 @@ def azel_from_sqldict(sqldict, antlist=None):
         daz.shape = delv.shape = az_req.shape = el_req.shape = az_act.shape = el_act.shape = rms
     chi = par_angle(el_act*dtor,az_act*dtor)
     # Override equatorial antennas
-    for iant in [8,9,10,12,13,14]:
+    for iant in eqant:
         # Case of equatorial mount antennas, convert HA, Dec to El, Az
         eqel, eqaz = hadec2altaz(az_act[:,iant]*dtor,el_act[:,iant]*dtor)
         chi[:,iant] = par_angle(eqel, eqaz)
 
     daz = az_act - az_req
     # Track limit is set at 1/10th of primary beam at 18 GHz
-    tracklim = np.array([0.0555]*13+[0.0043]*2)       # 15-element np.array
+    tracklim = np.array([0.0555]*nsolant+[0.0043]*(nant-nsolant))       # nant-element np.array
     trackflag = np.zeros(rms,'bool')
     for i in range(rms[0]):
         trackflag[i,:] = (np.abs(daz[i,:]) <= tracklim) & (np.abs(delv[i,:]) <= tracklim)
 
-    trackflag[:,14] = False   # Ant 15 is never tracking
+    if nant==15: trackflag[:,14] = False   # Ant 15 is never tracking
     
     # Check offsets to see if the antennas are intentionally not tracking the source
     tracksrcflag = np.ones(rms,bool)
