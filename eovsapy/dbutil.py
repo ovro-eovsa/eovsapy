@@ -158,6 +158,12 @@ def find_table_version(cursor,timestamp,scan_header=False):
                 query = query1+tbl+query2
                 data, msg = do_query(cursor, query)
                 if msg == 'Success':
+                    if float(data['Timestamp'][0]) < Time('2014-01-01').lv:
+                        # Weird bug in table 67, which has garbage records for times on 2010-05-15
+                        # A table with times earlier than 2014 should be table 67, whose first
+                        # good record is for the time in the next line.
+                        data['Timestamp'][0] = Time('2025-01-08 22:24:16').lv
+
                     if float(data['Timestamp'][0]) < float(timestamp):
                         mytbl = tbl
                         version = mytbl[2:4]
