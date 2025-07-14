@@ -72,6 +72,9 @@
 #  2025-May-22  DG
 #    Simple change to fix_time_drift() to work for change of Ant A from index 14
 #    to 16.
+#  2025-Jul-12  DG
+#    Discovered and fixed a major bug!
+#    Fixed hadec2altaz(), which apparently never worked.  This made parallactic angles wrong!
 # *
 
 from . import StringUtil as su
@@ -1527,22 +1530,15 @@ def hadec2altaz(ha, dec):
     lat = 37.233170*np.pi/180.
     salt = np.sin(dec)*np.sin(lat) + np.cos(dec)*np.cos(lat)*np.cos(ha)
     alt = np.arcsin(salt)
-    caz = (np.sin(dec) - np.sin(alt)*np.sin(lat)) / (np.cos(alt)*np.cos(lat))
-    if type(caz) is np.ndarray:
-        az = np.zeros(caz.shape,float)
-        for i,c in enumerate(caz):
-            if c >= 1 or c <= -1:
-                az[i] = np.pi
-            else:
-                az[i] = np.arccos(c)
-        if np.sin(ha[i]) > 0: 
-            az[i] = 2*np.pi - az[i]
+
+    az = np.arctan2(-np.cos(dec)*np.sin(ha), np.sin(dec)*np.cos(lat) - np.cos(dec)*np.cos(ha)*np.sin(lat))
+
+    if type(az) is np.ndarray:
+        az[np.where(az < 0)] += 2*np.pi
     else:
-        if caz >= 1 or caz <= -1:
-            az = np.pi
-        else:
-            az = np.arccos(caz)
-        if np.sin(ha) > 0: return alt, 2*np.pi - az
+        if az < 0:
+            az += 2*np.pi
+
     return alt, az
 
 #============================
