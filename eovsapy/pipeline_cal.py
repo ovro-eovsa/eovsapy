@@ -551,6 +551,7 @@ def unrot(data, azeldict=None):
     fidx1, fidx2 = common_val_idx(data['fghz'], fghz, precision=4)
     missing = np.setdiff1d(np.arange(len(data['fghz'])), fidx1)
 
+    ## todo: the following loops could be vectorized.
     nf, nbl, npol, nt = data['x'].shape
     nf = len(fidx1)
     # Correct data for X-Y delay phase
