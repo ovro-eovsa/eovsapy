@@ -103,7 +103,10 @@ def calIDB(trange):
     outfiles = []
     if ans.upper() == 'Y':
         for file in files:
-            outfiles.append(pc.udb_corr(file,calibrate=True,desat=True))
+            try:
+                outfiles.append(pc.udb_corr(file,calibrate=True,desat=True))
+            except Exception as e:
+                print(f"Error processing {file}: {e}")
     return outfiles
 
 
